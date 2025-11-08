@@ -1,0 +1,31 @@
+.venv/
+venv/
+env/
+*.env
+.env.*
+
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# macOS
+.DS_Store
+# Windows
+Thumbs.db
+# VSCode
+.vscode/
+# PyCharm
+.idea/
+
+report.html
+
+app_screenshot_part_*.png
+app_screenshot_part_*.jpg
+
+*_cropped_part_*.png
+*_cropped_part_*.jpg
+
+*.egg-info/
+dist/
+build/
