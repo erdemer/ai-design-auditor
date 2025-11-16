@@ -4,7 +4,7 @@ import os
 import config
 import adb_client
 import image_analyzer
-import comparator
+import comparator  # <-- Artık V8.0
 import PIL.Image
 from PIL import ImageChops
 import report_generator
@@ -12,48 +12,46 @@ import argparse
 from pprint import pprint
 
 
-# import json # Artık debug için gerekmiyor
+def _crop_image(input_path, crop_top, crop_bottom, output_path):
+    """
+    Basit crop fonksiyonu: üstten ve alttan belirtilen kadar piksel kırpar.
+    """
+    if crop_top <= 0 and crop_bottom <= 0:
+        return input_path
 
-def _crop_image(image_path, top_px, bottom_px, output_path):
-    """
-    Bir görüntüyü üstten ve alttan kırpar ve yeni bir dosyaya kaydeder.
-    """
     try:
-        with PIL.Image.open(image_path) as img:
-            width, height = img.size
-
-            left = 0
-            top = top_px
-            right = width
-            bottom = height - bottom_px
-
-            if top >= bottom:
-                print(f"HATA: Kırpma değerleri geçersiz. 'top' ({top}) 'bottom'dan ({bottom}) büyük olamaz.")
-                return None
-
-            print(f"[Crop] '{image_path}' kırpılıyor: Üstten {top_px}px, Alttan {bottom_px}px.")
-            cropped_img = img.crop((left, top, right, bottom))
-            cropped_img.save(output_path)
-            print(f"[Crop] Kırpılmış görüntü '{output_path}' olarak kaydedildi.")
-            return output_path
-
+        img = PIL.Image.open(input_path)
+        width, height = img.size
+        top = crop_top
+        bottom = height - crop_bottom
+        if bottom <= top:
+            print(f"[Crop] HATA: Geçersiz crop değerleri: height={height}, top={top}, bottom={bottom}")
+            return input_path
+        cropped = img.crop((0, top, width, bottom))
+        cropped.save(output_path)
+        print(f"[Crop] '{input_path}' -> '{output_path}' (top={crop_top}, bottom={crop_bottom})")
+        return output_path
     except Exception as e:
-        print(f"HATA: Görüntü kırpılırken hata oluştu: {e}")
-        return None
+        print(f"[Crop] HATA: Resim kırpılırken hata: {e}")
+        return input_path
 
 
-def _images_are_identical(path1, path2):
-    """İki görüntü dosyasının piksel piksel aynı olup olmadığını kontrol eder."""
+def _images_are_different(img_path_1, img_path_2, diff_threshold=10):
+    """
+    İki görüntünün anlamlı şekilde farklı olup olmadığını kontrol eder.
+    Çok basit bir piksel farkı kıyaslaması yapar.
+    """
+    if not img_path_1 or not img_path_2:
+        return True
+
     try:
-        img1 = PIL.Image.open(path1)
-        img2 = PIL.Image.open(path2)
-
+        img1 = PIL.Image.open(img_path_1).convert("RGB")
+        img2 = PIL.Image.open(img_path_2).convert("RGB")
         if img1.size != img2.size:
-            return False
-
-        diff = ImageChops.difference(img1.convert('RGB'), img2.convert('RGB'))
-
-        if diff.getbbox() is None:
+            return True
+        diff = ImageChops.difference(img1, img2)
+        bbox = diff.getbbox()
+        if bbox:
             return True
         else:
             return False
@@ -63,22 +61,30 @@ def _images_are_identical(path1, path2):
 
 
 def main():
-    print("--- AI Design Auditor (v6.2 / v4.3 - Hibrit Mod) Başlatılıyor ---")
+    print("--- AI Design Auditor (v8.0 - XML vs AI-JSON) Başlatılıyor ---")
 
     # 1. Girdi (Argüman) Kontrolü
-    parser = argparse.ArgumentParser(description="AI Tasarım Denetimi Aracı (Hibrit Mod)")
+    parser = argparse.ArgumentParser(description="AI Tasarım Denetimi Aracı (V10 Hibrit Mod)")
 
     parser.add_argument(
         "--figma-parts",
         nargs='+',
         required=True,
-        help="Karşılaştırılacak Figma PNG parçalarının yolları (Sırayla, örn: part1.png part2.png)"
+        help="Karşılaştırılacak Figma PNG parçalarının yolları (Sırayla, örn: part1.png)"
     )
+    # --- GÜNCELLENMİŞ ARGÜMAN: Artık .xml dosyaları da olabilir ---
     parser.add_argument(
         "--app-parts",
         nargs='+',
         required=False,
-        help="(Opsiyonel) Manuel olarak alınan App SS parçaları. Eğer verilmezse, ADB kullanılır."
+        help="(Opsiyonel) Manuel olarak alınan App SS (.png) VE XML (.xml) parçaları. Eğer verilmezse, ADB kullanılır."
+    )
+
+    parser.add_argument(
+        "--app-analysis-mode",
+        choices=["xml", "ai"],
+        default=config.APP_ANALYSIS_MODE,
+        help="App tarafını XML (uiautomator) veya AI (görüntü analizi) ile çözümle."
     )
 
     parser.add_argument("--figma-crop-top", type=int, default=0, help="Figma PNG'lerinden üstten kırpılacak piksel.")
@@ -90,97 +96,99 @@ def main():
 
     args = parser.parse_args()
 
-    # Çalışma Modu Kontrolü
-    run_mode = "auto"
+    # Run Mode belirle
     if args.app_parts:
         run_mode = "manual"
-        print("[Mod] 'Manuel Mod' aktif. Sağlanan App SS dosyaları kullanılacak.")
-        if len(args.figma_parts) != len(args.app_parts):
-            print(f"HATA: Parça sayıları eşleşmiyor!")
-            print(f"   Figma Parçaları: {len(args.figma_parts)} adet")
-            print(f"   App Parçaları:   {len(args.app_parts)} adet")
-            sys.exit(1)
+        print("[Mod] 'Manuel Mod' aktif. Sağlanan App dosyaları kullanılacak.")
     else:
+        run_mode = "auto"
         print("[Mod] 'Otomatik Mod' (ADB) aktif. ADB başarısız olursa yerel dosyalara bakılacak.")
 
     final_report = {
         "summary": {"error_count": 0, "layout_success_count": 0, "style_success_count": 0, "warning_count": 0,
-                    "audit_count": 0},
+                    "audit_count": 0, "total_matched": 0},
         "parts": [],
         "all_warnings": []
     }
 
     num_parts = len(args.figma_parts)
-    last_successful_ss_path = None
+    last_successful_ss_path = None  # Sadece 'scroll'u algılamak için
 
     if run_mode == "auto":
         print("\n[Oto-Mod] Başlangıç ekran görüntüsü (Base) alınıyor...")
         last_successful_ss_path = adb_client.take_screenshot(0)
-
         if not last_successful_ss_path:
-            print("[ADB Hatası] Başlangıç SS'i alınamadı.")
+            # Fallback (Yedek) mantığı: PNG'yi yerelden ara
             fallback_path = "app_screenshot_part_0.png"
             if os.path.exists(fallback_path):
-                print(f"[Fallback] Yerel dosya bulundu: '{fallback_path}'. Analiz için bu kullanılacak.")
+                print(f"[Oto-Mod] ADB başarısız oldu, fakat yerelde '{fallback_path}' bulundu ve kullanılacak.")
                 last_successful_ss_path = fallback_path
             else:
-                print(f"HATA: ADB başarısız VE yerel dosya '{fallback_path}' bulunamadı.")
+                print("[Oto-Mod] HATA: Ne ADB ne de yerel fallback ekran görüntüsü alınabildi.")
                 sys.exit(1)
 
-    # --- ANA DÖNGÜ ---
     for i, figma_part_path in enumerate(args.figma_parts):
-
-        part_index = i + 1
-        print(f"\n--- PARÇA {part_index} / {num_parts} İŞLENİYOR ---")
-        print(f"   Figma: '{figma_part_path}'")
-
+        part_index = i
+        print(f"\n--- Parça {part_index} işleniyor ---")
         if not os.path.exists(figma_part_path):
             print(f"HATA: Figma parçası '{figma_part_path}' bulunamadı. Atlanıyor.")
             continue
 
-        current_ss_path_for_analysis = None
+        app_xml_path_for_analysis = None
+        app_ss_path_for_report = None
 
         if run_mode == "manual":
-            app_part_path = args.app_parts[i]
-            print(f"   App (Manuel): '{app_part_path}'")
-            if not os.path.exists(app_part_path):
-                print(f"HATA: App parçası '{app_part_path}' bulunamadı. Atlanıyor.")
+            app_xml_path = args.app_parts[i]
+            print(f"   App XML (Manuel): '{app_xml_path}'")
+            if not os.path.exists(app_xml_path):
+                print(f"HATA: App XML parçası '{app_xml_path}' bulunamadı. Atlanıyor.")
                 continue
-            current_ss_path_for_analysis = app_part_path
+            app_xml_path_for_analysis = app_xml_path
+
+            # Manuel modda, XML ile aynı isimde bir .png olduğunu varsay
+            app_ss_path_for_report = os.path.splitext(app_xml_path)[0] + ".png"
+            if not os.path.exists(app_ss_path_for_report):
+                print(f"UYARI: Rapor için '{app_ss_path_for_report}' görseli bulunamadı.")
+                app_ss_path_for_report = None  # Raporun resimsiz olmasına neden olacak
 
         else:  # run_mode == "auto"
             if i == 0:
-                current_ss_path_for_analysis = last_successful_ss_path
+                app_ss_path_for_report = last_successful_ss_path
             else:
                 print("[Oto-Scroll] Kaydırma deneniyor...")
                 scroll_success = adb_client.scroll_down(args.app_crop_top, args.app_crop_bottom)
                 new_ss_path = adb_client.take_screenshot(part_index)
 
                 if not scroll_success or not new_ss_path:
-                    print("[ADB Hatası] Kaydırma veya SS alma başarısız.")
+                    # ADB Başarısız -> Fallback'i dene
                     fallback_path = f"app_screenshot_part_{part_index}.png"
                     if os.path.exists(fallback_path):
-                        print(f"[Fallback] Yerel dosya bulundu: '{fallback_path}'. Analiz için bu kullanılacak.")
+                        print(f"[Oto-Scroll] ADB başarısız, fakat '{fallback_path}' bulundu ve kullanılacak.")
                         new_ss_path = fallback_path
                     else:
-                        print(f"HATA: ADB başarısız VE yerel dosya '{fallback_path}' bulunamadı.")
-                        break
+                        print("[Oto-Scroll] HATA: ADB scroll + screenshot başarısız ve fallback görüntü yok. Parça atlanıyor.")
+                        continue
 
-                if _images_are_identical(last_successful_ss_path, new_ss_path):
-                    print("\n[Oto-Scroll] HATA: Sayfanın sonuna ulaşıldı!")
-                    final_report["all_warnings"].append(
-                        f"Oto-Scroll HATA: App sayfanın sonuna ulaştı (Parça {part_index - 1} -> {part_index}), "
-                        f"ancak {num_parts - i} adet Figma parçası daha vardı."
-                    )
-                    break
+                # Görüntü gerçekten farklı mı diye kontrol et (opsiyonel)
+                if not _images_are_different(last_successful_ss_path, new_ss_path):
+                    print("[Oto-Scroll] UYARI: Yeni ekran görüntüsü bir öncekinden anlamlı derecede farklı değil. Scroll algılanamadı.")
+                else:
+                    last_successful_ss_path = new_ss_path
 
-                print("[Oto-Scroll] Kaydırma başarılı, ekran değişti.")
-                last_successful_ss_path = new_ss_path
-                current_ss_path_for_analysis = new_ss_path
+                app_ss_path_for_report = new_ss_path
 
-            print(f"   App (Oto/Fallback): '{current_ss_path_for_analysis}'")
+            # Otomatik modda XML dump al
+            app_xml_path_for_analysis = adb_client.dump_layout_xml()
+            if not app_xml_path_for_analysis:
+                fallback_xml = "app_layout_dump.xml"
+                if os.path.exists(fallback_xml):
+                    print(f"[Oto-Mod] ADB XML dump başarısız, fakat yerelde '{fallback_xml}' bulundu ve kullanılacak.")
+                    app_xml_path_for_analysis = fallback_xml
+                else:
+                    print("[Oto-Mod] HATA: Ne ADB XML dump ne de yerel fallback XML bulundu. Bu parça için layout analizi yapılamayacak.")
 
         # 2. Adım: Görüntüleri Kırp (Opsiyonel)
+        # SADECE AI'ye gidecek olan FIGMA görüntüsünü kırp
         figma_cropped_path = figma_part_path
         if args.figma_crop_top > 0 or args.figma_crop_bottom > 0:
             figma_cropped_path = _crop_image(
@@ -190,49 +198,89 @@ def main():
         else:
             print("[Crop] Figma için kırpma atlanıyor (değerler 0).")
 
-        app_cropped_path = current_ss_path_for_analysis
-        if args.app_crop_top > 0 or args.app_crop_bottom > 0:
-            app_cropped_path = _crop_image(
-                current_ss_path_for_analysis, args.app_crop_top, args.app_crop_bottom,
+        # App SS'ini SADECE RAPORLAMA için kırp
+        app_cropped_path_for_report = app_ss_path_for_report
+        if app_ss_path_for_report and (args.app_crop_top > 0 or args.app_crop_bottom > 0):
+            app_cropped_path_for_report = _crop_image(
+                app_ss_path_for_report, args.app_crop_top, args.app_crop_bottom,
                 f"app_cropped_part_{part_index}.png"
             )
-        else:
-            print("[Crop] App için kırpma atlanıyor (değerler 0).")
 
-        if not figma_cropped_path or not app_cropped_path:
-            print("HATA: Kırpma işlemi başarısız. Bu parça atlanıyor.")
+        if not figma_cropped_path or not app_xml_path_for_analysis:
+            print("HATA: Gerekli Figma veya App verisi yok. Bu parça atlanıyor.")
             continue
 
-        # 3. Adım: AI Eşleştirme ve Analiz (v6)
-        matched_pairs_json = image_analyzer.analyze_image_pair(figma_cropped_path, app_cropped_path)
+        # 3. Adım: AI Analizi (SADECE FIGMA)
+        figma_data_json = image_analyzer.analyze_image(figma_cropped_path)
 
-        if not matched_pairs_json:
-            print("HATA: AI eşleştirme analizi başarısız. Bu parça atlanıyor.")
-            final_report["all_warnings"].append(f"UYARI: Parça {part_index} AI tarafından analiz edilemedi.")
+        if not figma_data_json:
+            print("HATA: AI Figma analizi başarısız. Bu parça atlanıyor.")
             continue
 
-        # 4. Adım: Karşılaştır
-        print(f"[Karşılaştırma] Parça {part_index} karşılaştırılıyor...")
+        # 4. Adım: En-boy oranlarına göre scale factor hesapla
         try:
             with PIL.Image.open(figma_cropped_path) as img:
                 figma_width = img.width
-            with PIL.Image.open(app_cropped_path) as img:
+            # App genişliğini XML'den (root node) veya SS'ten almamız lazım
+            # Şimdilik SS'ten alalım
+            with PIL.Image.open(app_cropped_path_for_report) as img:
                 app_width = img.width
         except Exception as e:
             print(f"HATA: Kırpılmış görüntü boyutları okunurken hata: {e}. Parça atlanıyor.")
             continue
 
-        results_part = comparator.compare_layouts(
-            matched_pairs_json, figma_width, app_width, config.DEFAULT_TOLERANCE_PX
-        )
+        if args.app_analysis_mode == "ai":
+            if not app_cropped_path_for_report:
+                print("UYARI: App için kırpılmış ekran görüntüsü bulunamadı, XML moduna düşülüyor.")
+                if not app_xml_path_for_analysis:
+                    print("HATA: Ne App SS ne de XML mevcut, bu parça atlanıyor.")
+                    continue
+                results_part = comparator.compare_layouts(
+                    figma_data_json,
+                    app_xml_path_for_analysis,
+                    figma_width,
+                    app_width,
+                    config.DEFAULT_TOLERANCE_PX
+                )
+            else:
+                app_data_json = image_analyzer.analyze_image(app_cropped_path_for_report)
+                if not app_data_json:
+                    print("UYARI: AI App analizi başarısız, XML moduna düşülüyor.")
+                    if not app_xml_path_for_analysis:
+                        print("HATA: App XML de yok, bu parça atlanıyor.")
+                        continue
+                    results_part = comparator.compare_layouts(
+                        figma_data_json,
+                        app_xml_path_for_analysis,
+                        figma_width,
+                        app_width,
+                        config.DEFAULT_TOLERANCE_PX
+                    )
+                else:
+                    results_part = comparator.compare_layouts_ai(
+                        figma_data_json,
+                        app_data_json,
+                        figma_width,
+                        app_width,
+                        config.DEFAULT_TOLERANCE_PX
+                    )
+        else:
+            results_part = comparator.compare_layouts(
+                figma_data_json,
+                app_xml_path_for_analysis,
+                figma_width,
+                app_width,
+                config.DEFAULT_TOLERANCE_PX
+            )
 
         # 5. Adım: Sonuçları Ana Rapora Ekle
         final_report["parts"].append({
             "part_index": part_index,
             "image_pair": {
                 "figma": figma_cropped_path,
-                "app": app_cropped_path
+                "app": app_cropped_path_for_report  # Kırpılmış SS'i rapora yolla
             },
+            "figma_spec": figma_data_json,
             "comparison_results": results_part
         })
 
@@ -243,15 +291,25 @@ def main():
         final_report["summary"]["layout_success_count"] += part_summary.get("layout_success_count", 0)
         final_report["summary"]["style_success_count"] += part_summary.get("style_success_count", 0)
         final_report["summary"]["warning_count"] += part_summary.get("warning_count", 0)
-        final_report["all_warnings"].extend(results_part.get("warnings", []))
+        final_report["summary"]["total_matched"] += part_summary.get("total_matched", 0)
 
         if i == 0:
             final_report["scale_factor"] = results_part.get("scale_factor", 0.0)
 
-    # --- DÖNGÜ BİTTİ ---
-
-    # 7. Adım: Final Raporunu Oluştur
-    print("\n--- TÜM PARÇALAR İŞLENDİ. FİNAL RAPORU OLUŞTURULUYOR ---")
+    # 7. Adım: Global yüzde uyum hesapları
+    summary = final_report.get("summary", {})
+    total = summary.get("total_matched", 0) or 0
+    if total > 0:
+        summary["layout_match_pct"] = round((summary.get("layout_success_count", 0) / total) * 100.0, 1)
+        summary["style_match_pct"] = round((summary.get("style_success_count", 0) / total) * 100.0, 1)
+        summary["overall_match_pct"] = round(
+            ((summary.get("layout_success_count", 0) + summary.get("style_success_count", 0)) / (2 * total)) * 100.0,
+            1,
+        )
+    else:
+        summary["layout_match_pct"] = 0.0
+        summary["style_match_pct"] = 0.0
+        summary["overall_match_pct"] = 0.0
 
     report_generator.create_html_report(final_report)
 

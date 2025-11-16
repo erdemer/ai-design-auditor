@@ -4,117 +4,83 @@ import os
 import time
 import re
 
-# Cihazdaki geçici dosya yolu
-DEVICE_TEMP_PATH = "/sdcard/ai_audit_screenshot.png"
+# Cihazdaki geçici dosya yolları
+DEVICE_TEMP_SS_PATH = "/sdcard/ai_audit_screenshot.png"
+DEVICE_TEMP_XML_PATH = "/sdcard/ai_audit_layout.xml"
 
 
 def _get_screen_dimensions():
-    """
-    Cihazın fiziksel ekran boyutlarını 'adb shell wm size' ile alır.
-    (width, height) döndürür, başarısız olursa (None, None) döndürür.
-    """
+    """Cihazın fiziksel ekran boyutlarını 'adb shell wm size' ile alır."""
     try:
         result = subprocess.run(
             ["adb", "shell", "wm", "size"],
-            check=True, capture_output=True, text=True, timeout=5
+            capture_output=True,
+            text=True,
+            check=True,
         )
-        match = re.search(r'Physical size:\s*(\d+)x(\d+)', result.stdout)
+        output = result.stdout.strip()
+        match = re.search(r"Physical size: (\\d+)x(\\d+)", output)
         if match:
-            width = int(match.group(1))
-            height = int(match.group(2))
-            print(f"[ADB] Cihaz boyutu algılandı: {width}x{height}")
+            width, height = int(match.group(1)), int(match.group(2))
+            print(f"[ADB] Ekran boyutu: {width}x{height}")
             return width, height
         else:
-            print(f"[ADB] HATA: 'wm size' çıktısı anlaşılamadı. Çıktı: {result.stdout}")
-            return None, None
+            print("[ADB] Ekran boyutu alınamadı, varsayılan 1080x2400 kullanılıyor.")
+            return 1080, 2400
     except Exception as e:
-        print(f"[ADB] HATA: Cihaz boyutu alınamadı: {e}")
-        return None, None
+        print(f"[ADB] Ekran boyutu okunurken hata: {e}, varsayılan 1080x2400 kullanılıyor.")
+        return 1080, 2400
 
 
-def take_screenshot(part_index):
+def take_screenshot(part_index=0, output_dir="."):
     """
-    Bağlı ADB cihazından ekran görüntüsü alır ve 'app_screenshot_part_1.png' gibi
-    numaralandırılmış bir isimle kaydeder.
+    ADB ile ekran görüntüsü alır ve local'e çeker.
     """
-    output_filename = f"app_screenshot_part_{part_index}.png"
-    print(f"[ADB] Cihazdan ekran görüntüsü (Parça {part_index}) alınıyor...")
-
+    local_filename = os.path.join(output_dir, f"app_screenshot_part_{part_index}.png")
     try:
-        # 1. Cihazda ekran görüntüsü al
-        subprocess.run(
-            ["adb", "shell", "screencap", "-p", DEVICE_TEMP_PATH],
-            check=True, capture_output=True, timeout=10
-        )
-
-        # 2. Ekran görüntüsünü bilgisayara çek
-        if os.path.exists(output_filename):
-            os.remove(output_filename)
-
-        subprocess.run(
-            ["adb", "pull", DEVICE_TEMP_PATH, output_filename],
-            check=True, capture_output=True, timeout=10
-        )
-
-        # 3. Cihazdaki geçici dosyayı sil
-        subprocess.run(
-            ["adb", "shell", "rm", DEVICE_TEMP_PATH],
-            capture_output=True, timeout=5
-        )
-
-        print(f"[ADB] Ekran görüntüsü başarıyla '{output_filename}' olarak kaydedildi.")
-        return output_filename
-
+        print(f"[ADB] Ekran görüntüsü alınıyor -> {local_filename}")
+        subprocess.run(["adb", "shell", "screencap", "-p", DEVICE_TEMP_SS_PATH], check=True)
+        subprocess.run(["adb", "pull", DEVICE_TEMP_SS_PATH, local_filename], check=True)
+        return local_filename
     except Exception as e:
-        print(f"[ADB] HATA: ADB komutu başarısız oldu: {e}")
+        print(f"[ADB] Ekran görüntüsü alınamadı: {e}")
         return None
 
 
-def scroll_down(crop_top_px=0, crop_bottom_px=0):
+def dump_layout_xml(output_dir="."):
     """
-    Cihazda dikey bir kaydırma (swipe) hareketi yapar.
-    (GÜNCELLENDİ: Artık kırpılmış alanın %80'i kadar kaydırır)
+    ADB ile UIAutomator XML dump alır ve local'e çeker.
     """
-    print("[ADB] Ekranda aşağı kaydırılıyor (swipe)...")
+    local_xml = os.path.join(output_dir, "app_layout_dump.xml")
+    try:
+        print("[ADB] UIAutomator layout XML dump alınıyor...")
+        subprocess.run(["adb", "shell", "uiautomator", "dump", DEVICE_TEMP_XML_PATH], check=True)
+        subprocess.run(["adb", "pull", DEVICE_TEMP_XML_PATH, local_xml], check=True)
+        return local_xml
+    except Exception as e:
+        print(f"[ADB] XML dump alınamadı: {e}")
+        return None
 
-    # 1. Cihaz boyutlarını al
+
+def scroll_down(crop_top=0, crop_bottom=0):
+    """
+    Basit bir 'scroll down' hareketi uygular.
+    crop_top / crop_bottom, status/nav bar kırpmalarını hesaba katmak için kullanılabilir.
+    """
     width, height = _get_screen_dimensions()
-    if not width or not height:
-        print("[ADB] HATA: Cihaz boyutu alınamadığı için kaydırma yapılamıyor.")
-        return False
 
-    # 2. Orantılı koordinatları hesapla
-    scrollable_top = crop_top_px
-    scrollable_bottom = height - crop_bottom_px
-    scrollable_height = scrollable_bottom - scrollable_top
-
-    if scrollable_height <= 0:
-        print("[ADB] HATA: Kırpma ayarları tüm ekranı kaplıyor, kaydırma yapılamaz.")
-        return False
-
-    # 3. Güvenli Kaydırma Miktarı
-    scroll_amount = int(scrollable_height * 0.8)
-
-    x_coord = int(width / 2)
-    y_start = scrollable_top + int(scrollable_height * 0.8)
-    y_end = y_start - scroll_amount
-
-    if y_end < scrollable_top:
-        y_end = scrollable_top
-
-    duration_ms = 400
-
-    print(f"[ADB] Güvenli Kaydırma Komutu: swipe {x_coord} {y_start} {x_coord} {y_end} {duration_ms}")
+    start_x = width // 2
+    start_y = height // 2
+    end_y = int(height * 0.2)  # yukarı doğru kaydır
 
     try:
-        # 4. ADB komutunu çalıştır
+        print("[ADB] Scroll hareketi gönderiliyor...")
         subprocess.run(
-            ["adb", "shell", "input", "swipe",
-             str(x_coord), str(y_start), str(x_coord), str(y_end), str(duration_ms)],
-            check=True, capture_output=True, timeout=5
+            ["adb", "shell", "input", "swipe", str(start_x), str(start_y), str(start_x), str(end_y), "600"],
+            check=True,
         )
-        time.sleep(1.5)
+        time.sleep(1.0)
         return True
     except Exception as e:
-        print(f"[ADB] HATA: Kaydırma (swipe) başarısız oldu: {e}")
+        print(f"[ADB] Scroll hareketi başarısız: {e}")
         return False
