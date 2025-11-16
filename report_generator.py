@@ -7,6 +7,7 @@ import base64
 from io import BytesIO
 import PIL.Image
 
+# --- HTML ŞABLONU (v4.6 - AYRILMIŞ BAŞARI SEKMELERİ) ---
 HTML_TEMPLATE = """
 <html>
 <head>
@@ -22,54 +23,89 @@ HTML_TEMPLATE = """
     }}
     h1 {{ color: #FFFFFF; border-bottom: 2px solid #444; }}
     h2 {{ color: #FFFFFF; margin-top: 30px; border-bottom: 1px solid #333; }}
-    table {{ width: 100%; border-collapse: collapse; margin-top: 20px; }}
+
+    /* TAB (SEKME) STİLLERİ */
+    .tab {{
+        overflow: hidden;
+        border-bottom: 1px solid #444;
+        margin-top: 20px;
+        margin-bottom: 10px;
+    }}
+    .tab button {{
+        background-color: inherit;
+        float: left;
+        border: none;
+        outline: none;
+        cursor: pointer;
+        padding: 14px 16px;
+        transition: 0.3s;
+        font-size: 16px;
+        color: #888;
+        font-weight: bold;
+    }}
+    .tab button:hover {{ background-color: #2a2a2a; color: #fff; }}
+    .tab button.active {{ color: #fff; }}
+    .tab button.active.error-tab {{ border-bottom: 3px solid #F44336; color: #F44336; }}
+    .tab button.active.audit-tab {{ border-bottom: 3px solid #42A5F5; color: #42A5F5; }}
+    .tab button.active.success-tab {{ border-bottom: 3px solid #66BB6A; color: #66BB6A; }}
+    .tab button.active.warning-tab {{ border-bottom: 3px solid #FFA726; color: #FFA726; }}
+
+    .tabcontent {{
+        display: none;
+        padding: 6px 12px;
+        animation: fadeEffect 0.5s;
+    }}
+    @keyframes fadeEffect {{ from {{opacity: 0;}} to {{opacity: 1;}} }}
+
+    /* TABLO STİLLERİ */
+    table {{ width: 100%; border-collapse: collapse; }}
     th {{ background-color: #1E1E1E; padding: 12px; text-align: left; border-bottom: 2px solid #444; }}
     td {{ padding: 12px; border-bottom: 1px solid #333; }}
     tr.component-row {{ cursor: pointer; transition: background-color 0.2s; }}
     tr.component-row:hover {{ background-color: #2a2a2a; }}
     tr.component-row.active {{ background-color: #3a3a3a; }}
+
+    /* DETAY ALANI */
     .details-row {{ display: none; background-color: #1a1a1a; }}
     .details-row td {{ padding: 0; }}
     .details-content {{ display: flex; flex-wrap: wrap; padding: 15px; }}
     .details-col {{ flex: 1; min-width: 300px; padding: 0 15px; }}
     .details-col h4 {{ margin-top: 0; color: #AAAAAA; border-bottom: 1px solid #444; padding-bottom: 5px; }}
+
     .status-icon {{ font-size: 1.2em; }}
-    .status-pass {{ color: #66BB6A; }} .status-fail {{ color: #F44336; }}
-    .status-audit {{ color: #42A5F5; }} .status-n-a {{ color: #888; }}
+    .status-pass {{ color: #66BB6A; }} 
+    .status-fail {{ color: #F44336; }} 
+    .status-audit {{ color: #42A5F5; }} 
+    .status-n-a {{ color: #888; }} 
+
     pre {{ background-color: #0d0d0d; padding: 10px; border-radius: 4px; font-size: 0.85em; white-space: pre-wrap; word-wrap: break-word; }}
-    .summary {{ display: flex; flex-wrap: wrap; gap: 20px; margin-bottom: 20px; }}
-    .summary-box {{ background-color: #1E1E1E; padding: 15px; border-radius: 8px; text-align: center; flex-grow: 1; }}
+
+    /* ÖZET KUTULARI (v4.2) */
+    .summary {{ 
+        display: grid; 
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); 
+        gap: 20px; 
+        margin-bottom: 20px; 
+    }}
+    .summary-box {{ background-color: #1E1E1E; padding: 15px; border-radius: 8px; text-align: center; }}
     .summary-box .count {{ font-size: 2.5em; font-weight: bold; }}
     .summary-box .label {{ font-size: 1em; color: #AAAAAA; }}
     .error .count {{ color: #F44336; }} .warning .count {{ color: #FFA726; }}
     .success .count {{ color: #66BB6A; }} .audit .count {{ color: #42A5F5; }}
-    details {{ background-color: #1E1E1E; border: 1px solid #333; border-radius: 6px; margin-top: 10px; }}
-    summary {{ padding: 12px; cursor: pointer; font-weight: bold; color: #FFA726; }}
+
     li.warning {{ background-color: #2a2a2a; border-left: 5px solid #FFA726; padding: 10px; list-style: none; margin: 5px 0; }}
     ul {{ padding-left: 20px; }}
+
+    /* RESİM ALANI */
     .image-comparison-area {{ display: flex; flex-direction: column; gap: 20px; margin-top: 20px; }}
     .image-pair {{ display: flex; gap: 20px; }}
     .image-container {{ 
-        flex: 1; 
-        position: relative; 
-        background-color: #1E1E1E; 
-        padding: 10px; 
-        border-radius: 8px; 
-        border: 1px solid #333; 
+        flex: 1; position: relative; background-color: #1E1E1E; padding: 10px; border-radius: 8px; border: 1px solid #333; 
     }}
     .image-container h3 {{ margin-top: 0; text-align: center; }}
-    .image-container img {{ 
-        width: 100%; 
-        height: auto; 
-        border-radius: 4px; 
-    }}
+    .image-container img {{ width: 100%; height: auto; border-radius: 4px; }}
     .highlight-canvas {{
-        position: absolute;
-        top: 10px; 
-        left: 10px; 
-        width: calc(100% - 20px); 
-        height: calc(100% - 20px);
-        pointer-events: none; 
+        position: absolute; top: 10px; left: 10px; width: calc(100% - 20px); height: calc(100% - 20px); pointer-events: none; 
     }}
 </style>
 </head>
@@ -77,27 +113,81 @@ HTML_TEMPLATE = """
     <h1>AI Tasarım Denetim Raporu</h1>
     <footer>Rapor Tarihi: {report_date} | Temel Ölçekleme: {scale_factor:.3f}x (App px / Figma dp)</footer>
 
-    <div class.summary">
-        <div class="summary-box error"><div class="count">{error_count}</div><div class="label">Toplam Layout Hatası</div></div>
-        <div class.summary-box audit"><div class.count">{audit_count}</div><div class="label">Toplam Stil Farklılığı</div></div>
-        <div class.summary-box success"><div class="count">{success_count}</div><div class="label">Toplam Başarılı</div></div>
-        <div class.summary-box warning"><div class="count">{warning_count}</div><div class="label">Toplam Eşleşmeyen</div></div>
+    <div class="summary">
+        <div class="summary-box error">
+            <div class="count">{error_count}</div>
+            <div class="label">Layout Hataları</div>
+        </div>
+        <div class="summary-box success">
+            <div class="count">{layout_success_count}</div>
+            <div class="label">Layout Başarılı</div>
+        </div>
+        <div class="summary-box audit">
+            <div class="count">{audit_count}</div>
+            <div class="label">Stil Farklılıkları</div>
+        </div>
+        <div class="summary-box success">
+            <div class="count">{style_success_count}</div>
+            <div class="label">Stil Başarılı (Birebir)</div>
+        </div>
+        <div class="summary-box warning">
+            <div class="count">{warning_count}</div>
+            <div class="label">Eşleşmeyen (Uyarı)</div>
+        </div>
     </div>
 
     <h2>Görüntü Karşılaştırması (Kırpılmış Parçalar)</h2>
-    <p style="color: #aaa;">Bir bileşenin yerini görmek için aşağıdaki tablolardan bir satıra tıklayın.</p>
+    <p style="color: #aaa;">Aşağıdaki sekmelerden bir satıra tıkladığınızda ilgili bileşen burada vurgulanacaktır.</p>
     <div class="image-comparison-area">
         {image_comparison_html}
     </div>
 
-    {all_tables_html}
+    <h2>Detaylı Analiz</h2>
+    <div class="tab">
+        <button class="tablinks active error-tab" onclick="openTab(event, 'LayoutErrors')">❌ Layout Hataları ({error_count})</button>
+        <button class="tablinks audit-tab" onclick="openTab(event, 'StyleAudits')">🎨 Stil Farklılıkları ({audit_count})</button>
+        <button class="tablinks success-tab" onclick="openTab(event, 'LayoutSuccesses')">✅ Layout Başarılı ({layout_success_count})</button>
+        <button class="tablinks success-tab" onclick="openTab(event, 'StyleSuccesses')">✅ Stil Başarılı ({style_success_count})</button>
+        <button class="tablinks warning-tab" onclick="openTab(event, 'Warnings')">⚠️ Eşleşmeyenler ({warning_count})</button>
+    </div>
 
-    <details>
-        <summary>⚠️ Eşleşmeyen Bileşenler (Tüm Parçalar) - {warning_count} adet</summary>
+    <div id="LayoutErrors" class="tabcontent" style="display: block;">
+        {layout_error_table}
+    </div>
+
+    <div id="StyleAudits" class="tabcontent">
+        {style_audit_table}
+    </div>
+
+    <div id="LayoutSuccesses" class.tabcontent">
+        {layout_success_table}
+    </div>
+
+    <div id="StyleSuccesses" class="tabcontent">
+        {style_success_table}
+    </div>
+
+    <div id="Warnings" class="tabcontent">
         <ul>{warning_items}</ul>
-    </details>
+    </div>
 
 <script>
+    // Sekme Değiştirme Fonksiyonu
+    function openTab(evt, tabName) {{
+        var i, tabcontent, tablinks;
+        tabcontent = document.getElementsByClassName("tabcontent");
+        for (i = 0; i < tabcontent.length; i++) {{
+            tabcontent[i].style.display = "none";
+        }}
+        tablinks = document.getElementsByClassName("tablinks");
+        for (i = 0; i < tablinks.length; i++) {{
+            tablinks[i].className = tablinks[i].className.replace(" active", "");
+        }}
+        document.getElementById(tabName).style.display = "block";
+        evt.currentTarget.className += " active";
+    }}
+
+    // Satır Aç/Kapa ve Vurgulama
     let activeRow = null;
 
     function toggleRow(row, partIndex) {{
@@ -107,10 +197,7 @@ HTML_TEMPLATE = """
         var allDetails = document.querySelectorAll('.details-row');
         allDetails.forEach(function(d) {{ d.style.display = 'none'; }});
 
-        if (activeRow) {{
-            activeRow.classList.remove('active');
-        }}
-
+        if (activeRow) {{ activeRow.classList.remove('active'); }}
         clearAllCanvases();
 
         if (isOpening) {{
@@ -127,12 +214,10 @@ HTML_TEMPLATE = """
         try {{
             var figmaBounds = JSON.parse(row.dataset.figmaBounds);
             var appBounds = JSON.parse(row.dataset.appBounds);
-
             var figmaCanvas = document.getElementById('figma-canvas-part-' + partIndex);
             var appCanvas = document.getElementById('app-canvas-part-' + partIndex);
-
             var figmaImg = document.getElementById('figma-img-part-' + partIndex);
-            var appImg = document.getElementById('app-img-part-' + partIndex);
+            var appImg = document.getElementById('app-img-part-' + partIndex); 
 
             if (!figmaCanvas || !appCanvas || !figmaImg || !appImg) return;
 
@@ -145,65 +230,46 @@ HTML_TEMPLATE = """
             var appScale = appCanvas.width / (appImg.naturalWidth || appImg.width);
 
             var fCtx = figmaCanvas.getContext('2d');
-            fCtx.strokeStyle = 'red';
-            fCtx.lineWidth = 2;
-            fCtx.strokeRect(
-                figmaBounds.x * figmaScale,
-                figmaBounds.y * figmaScale,
-                figmaBounds.w * figmaScale,
-                figmaBounds.h * figmaScale
-            );
+            fCtx.strokeStyle = '#F44336'; // Kırmızı Vurgu
+            fCtx.lineWidth = 3;
+            fCtx.strokeRect(figmaBounds.x * figmaScale, figmaBounds.y * figmaScale, figmaBounds.w * figmaScale, figmaBounds.h * figmaScale);
 
             var aCtx = appCanvas.getContext('2d');
-            aCtx.strokeStyle = 'red';
-            aCtx.lineWidth = 2;
-            aCtx.strokeRect(
-                appBounds.x * appScale,
-                appBounds.y * appScale,
-                appBounds.w * appScale,
-                appBounds.h * appScale
-            );
+            aCtx.strokeStyle = '#F44336'; 
+            aCtx.lineWidth = 3;
+            aCtx.strokeRect(appBounds.x * appScale, appBounds.y * appScale, appBounds.w * appScale, appBounds.h * appScale);
 
-        }} catch (e) {{
-            console.error("Kutucuk çizilirken hata oluştu:", e);
-        }}
+        }} catch (e) {{ console.error("Kutucuk çizerken hata:", e); }}
     }}
 
     function clearAllCanvases() {{
         var allCanvases = document.querySelectorAll('.highlight-canvas');
         allCanvases.forEach(function(canvas) {{
-            var context = canvas.getContext('2d');
-            context.clearRect(0, 0, canvas.width, canvas.height);
+            canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
         }});
     }}
 
     function setupCanvases() {{
         var allCanvases = document.querySelectorAll('.highlight-canvas');
         allCanvases.forEach(function(canvas) {{
-            var partIndex = canvas.id.split('-').pop();
             var img = document.getElementById(canvas.id.replace('canvas', 'img'));
             if (img) {{
-                // Resmin yüklenmesini bekle (tarayıcılar için)
                 if (img.complete) {{
-                    canvas.width = img.clientWidth;
-                    canvas.height = img.clientHeight;
-                    img.naturalWidth = img.naturalWidth || img.width; 
-                    img.naturalHeight = img.naturalHeight || img.height;
+                    canvas.width = img.clientWidth; canvas.height = img.clientHeight;
+                    img.naturalWidth = img.naturalWidth || img.width; img.naturalHeight = img.naturalHeight || img.height;
                 }} else {{
                     img.onload = function() {{
-                        canvas.width = img.clientWidth;
-                        canvas.height = img.clientHeight;
-                        img.naturalWidth = img.naturalWidth || img.width; 
-                        img.naturalHeight = img.naturalHeight || img.height;
+                        canvas.width = img.clientWidth; canvas.height = img.clientHeight;
+                        img.naturalWidth = img.naturalWidth || img.width; img.naturalHeight = img.naturalHeight || img.height;
                     }}
                 }}
             }}
         }});
     }}
 
-    window.onload = setupCanvases;
-    window.onresize = setupCanvases;
-
+    // Sayfa yüklendiğinde ve yeniden boyutlandırıldığında kanvasları ayarla
+    window.addEventListener('load', setupCanvases);
+    window.addEventListener('resize', setupCanvases);
 </script>
 </body>
 </html>
@@ -211,7 +277,6 @@ HTML_TEMPLATE = """
 
 
 def _get_status_icon(status):
-    """Test durumu (status) için bir HTML ikonu döndürür."""
     if status == 'pass': return '<span class="status-icon status-pass" title="Başarılı">✅</span>'
     if status == 'fail': return '<span class="status-icon status-fail" title="Hatalı">❌</span>'
     if status == 'audit': return '<span class="status-icon status-audit" title="Denetle">🎨</span>'
@@ -219,7 +284,6 @@ def _get_status_icon(status):
 
 
 def _format_style_details(style_data):
-    """Stil denetimi için güzel bir HTML listesi oluşturur."""
     if style_data['status'] == 'n/a': return "<p>Stil testi uygulanamadı.</p>"
     figma_styles, app_styles = style_data['figma'], style_data['app']
     html = "<ul>"
@@ -233,143 +297,140 @@ def _format_style_details(style_data):
 
 
 def _embed_image_as_base64(image_path):
-    """Bir görüntüyü Base64 string olarak kodlar (HTML'e gömmek için)."""
     try:
         with PIL.Image.open(image_path) as img:
             buffer = BytesIO()
             img.save(buffer, format="PNG")
-            img_str = base64.b64encode(buffer.getvalue()).decode("utf-8")
-            return img_str
+            return base64.b64encode(buffer.getvalue()).decode("utf-8")
     except Exception as e:
         print(f"[Rapor] HATA: Görüntü Base64'e çevrilirken hata: {e}")
         return ""
 
 
 def _generate_image_comparison_html(report_parts):
-    """Raporun en üstündeki resim çiftlerini (KANVASLI) oluşturur."""
     html = ""
-    # 'report_parts' artık 'results.get("parts", [])' listesidir
     for part_data in report_parts:
         part_index = part_data.get("part_index", 0)
-
-        # --- DÜZELTME BURADA ---
-        # 'pair["figma"]' yerine 'part_data["image_pair"]["figma"]' kullan
         image_pair = part_data.get("image_pair", {})
-        figma_path = image_pair.get("figma")
-        app_path = image_pair.get("app")
-
-        if not figma_path or not app_path:
-            continue
-        # --- DÜZELTME BİTTİ ---
+        figma_path, app_path = image_pair.get("figma"), image_pair.get("app")
+        if not figma_path or not app_path: continue
 
         figma_base64 = _embed_image_as_base64(figma_path)
         app_base64 = _embed_image_as_base64(app_path)
 
         html += f"<h3>Parça {part_index}</h3>"
         html += '<div class="image-pair">'
-        # Figma Resim Konteyneri (Resim + Kanvas)
-        html += '<div class="image-container">'
-        html += f'  <img src="data:image/png;base64,{figma_base64}" alt="Figma Parça {part_index}" id="figma-img-part-{part_index}">'
-        html += f'  <canvas id="figma-canvas-part-{part_index}" class="highlight-canvas"></canvas>'
-        html += '</div>'
-        # App Resim Konteyneri (Resim + Kanvas)
-        html += '<div class="image-container">'
-        html += f'  <img src="data:image/png;base64,{app_base64}" alt="App Parça {part_index}" id="app-img-part-{part_index}">'
-        html += f'  <canvas id="app-canvas-part-{part_index}" class="highlight-canvas"></canvas>'
-        html += '</div>'
+        html += f'<div class="image-container"><img src="data:image/png;base64,{figma_base64}" alt="Figma" id="figma-img-part-{part_index}"><canvas id="figma-canvas-part-{part_index}" class="highlight-canvas"></canvas></div>'
+        html += f'<div class="image-container"><img src="data:image/png;base64,{app_base64}" alt="App" id="app-img-part-{part_index}"><canvas id="app-canvas-part-{part_index}" class="highlight-canvas"></canvas></div>'
         html += '</div>'
     return html
 
 
-def _generate_all_tables_html(report_parts):
-    """Her parça için ayrı bir tıklanabilir tablo oluşturur."""
-    all_tables_html = ""
+def _create_row_html(comp, part_index):
+    """Tek bir bileşen için HTML tablo satırlarını oluşturur."""
+    figma_bounds_json = json.dumps(comp["raw_data"]["figma"].get("bounds", {}))
+    app_bounds_json = json.dumps(comp["raw_data"]["app"].get("bounds", {}))
+
+    row_html = f'<tr class="component-row" onclick="toggleRow(this, {part_index})" data-figma-bounds=\'{figma_bounds_json}\' data-app-bounds=\'{app_bounds_json}\'>'
+    row_html += f'  <td><strong>{comp["name"]}</strong> (P{part_index})</td>'
+    row_html += f'  <td>{_get_status_icon(comp["overall_layout_status"])}</td>'
+    row_html += f'  <td>{_get_status_icon(comp["overall_style_status"])}</td>'
+    row_html += '</tr>'
+
+    tests = comp['tests']
+    raw_data = comp['raw_data']
+
+    row_html += '<tr class="details-row"><td colspan="3"><div class="details-content">'
+    row_html += f'<div class="details-col"><h4>Layout Test ({_get_status_icon(comp["overall_layout_status"])})</h4>'
+    row_html += f'<p><strong>Boyut:</strong> {tests["dimensions"]["message"]}</p>'
+    row_html += f'<p><strong>Dikey:</strong> {tests["spacing"]["message"]}</p>'
+    if "padding" in tests: row_html += f'<p><strong>Yatay:</strong> {tests["padding"]["message"]}</p>'
+    row_html += '</div>'
+
+    row_html += f'<div class="details-col"><h4>Stil Denetimi ({_get_status_icon(comp["overall_style_status"])})</h4>{_format_style_details(tests["style"])}</div>'
+
+    row_html += f'<div class="details-col"><h4>Ham Veri</h4><pre>Figma: {json.dumps(raw_data["figma"], indent=2)}\nApp: {json.dumps(raw_data["app"], indent=2)}</pre></div>'
+    row_html += '</div></td></tr>'
+
+    return row_html
+
+
+def _generate_table_content(report_parts, filter_type):
+    """
+    Belirli bir filtreye göre (error, audit, success) tablo içeriği oluşturur.
+    (GÜNCELLENMİŞ v4.6 FİLTRELEME MANTIĞI)
+    """
+    rows_html = ""
+    has_data = False
+
     for part_data in report_parts:
         part_index = part_data.get("part_index", 0)
         comparison_results = part_data.get("comparison_results", {})
 
-        all_tables_html += f'<h2>Bileşen Karşılaştırma Tablosu (Parça {part_index})</h2>'
-        all_tables_html += '<table><thead><tr>'
-        all_tables_html += '<th>Bileşen Adı (AI Tahmini)</th>'
-        all_tables_html += '<th>Layout (Boyut/Boşluk)</th>'
-        all_tables_html += '<th>Stil (Font/Renk)</th>'
-        all_tables_html += '</tr></thead><tbody>'
-
-        table_rows = []
         for comp in comparison_results.get('matched_components', []):
-            figma_bounds_json = json.dumps(comp["raw_data"]["figma"].get("bounds", {}))
-            app_bounds_json = json.dumps(comp["raw_data"]["app"].get("bounds", {}))
+            should_add = False
 
-            table_rows.append(f'<tr class="component-row" '
-                              f'onclick="toggleRow(this, {part_index})" '
-                              f'data-figma-bounds=\'{figma_bounds_json}\' '
-                              f'data-app-bounds=\'{app_bounds_json}\'>')
-            table_rows.append(f'  <td><strong>{comp["name"]}</strong></td>')
-            table_rows.append(f'  <td>{_get_status_icon(comp["overall_layout_status"])}</td>')
-            table_rows.append(f'  <td>{_get_status_icon(comp["overall_style_status"])}</td>')
-            table_rows.append('</tr>')
+            layout_status = comp["overall_layout_status"]
+            style_status = comp["overall_style_status"]
 
-            tests = comp['tests']
-            raw_data = comp['raw_data']
-            table_rows.append('<tr class="details-row"><td colspan="3">')
-            table_rows.append('  <div class="details-content">')
+            if filter_type == "layout_error":
+                if layout_status == 'fail':
+                    should_add = True
 
-            table_rows.append('    <div class="details-col">')
-            table_rows.append(
-                f'      <h4>Layout Test Sonuçları ({_get_status_icon(comp["overall_layout_status"])})</h4>')
-            table_rows.append(f'      <p><strong>Boyut (w, h):</strong> {tests["dimensions"]["message"]}</p>')
-            table_rows.append(f'      <p><strong>Dikey Boşluk (Üst):</strong> {tests["spacing"]["message"]}</p>')
-            if "padding" in tests:
-                table_rows.append(
-                    f'      <p><strong>Yatay Boşluk (Sol/Sağ):</strong> {tests["padding"]["message"]}</p>')
-            table_rows.append('    </div>')
+            elif filter_type == "style_audit":
+                if style_status == 'audit':
+                    should_add = True
 
-            table_rows.append('    <div class="details-col">')
-            table_rows.append(f'      <h4>Stil Denetimi ({_get_status_icon(comp["overall_style_status"])})</h4>')
-            table_rows.append(_format_style_details(tests["style"]))
-            table_rows.append('    </div>')
+            elif filter_type == "layout_success":
+                if layout_status == 'pass':
+                    should_add = True
 
-            table_rows.append('    <div class="details-col">')
-            table_rows.append('      <h4>Ham AI Verisi (Figma)</h4>')
-            table_rows.append(f'      <pre>{json.dumps(raw_data["figma"], indent=2)}</pre>')
-            table_rows.append('      <h4>Ham AI Verisi (App)</h4>')
-            table_rows.append(f'      <pre>{json.dumps(raw_data["app"], indent=2)}</pre>')
-            table_rows.append('    </div>')
+            elif filter_type == "style_success":
+                if style_status == 'pass':
+                    should_add = True
 
-            table_rows.append('  </div></td></tr>')
+            if should_add:
+                rows_html += _create_row_html(comp, part_index)
+                has_data = True
 
-        all_tables_html += "\n".join(table_rows)
-        all_tables_html += '</tbody></table>'
+    if not has_data:
+        return '<tr><td colspan="3" style="text-align:center; color:#888; padding:20px;">Bu kategoride kayıt bulunamadı.</td></tr>'
 
-    return all_tables_html
+    header = '<table><thead><tr><th>Bileşen (Parça)</th><th>Layout</th><th>Stil</th></tr></thead><tbody>'
+    footer = '</tbody></table>'
+    return header + rows_html + footer
 
 
 def create_html_report(results, output_filename="report.html"):
-    """
-    Tüm 'results' JSON'unu alır ve interaktif bir HTML dashboard oluşturur.
-    """
-
     summary = results.get('summary', {})
 
-    # 1. Görüntüleri oluştur
+    # 1. Tabloları oluştur (YENİ SEKMELER EKLENDİ)
+    layout_error_table = _generate_table_content(results.get("parts", []), "layout_error")
+    style_audit_table = _generate_table_content(results.get("parts", []), "style_audit")
+    layout_success_table = _generate_table_content(results.get("parts", []), "layout_success")
+    style_success_table = _generate_table_content(results.get("parts", []), "style_success")
+
+    # 2. Resimler ve Uyarılar
     image_comparison_html = _generate_image_comparison_html(results.get("parts", []))
-
-    # 2. Tüm tabloları oluştur
-    all_tables_html = _generate_all_tables_html(results.get("parts", []))
-
-    # 3. Uyarı (Warnings) Listesini Oluştur
     warning_items = "".join([f"<li class='warning'>{item}</li>" for item in results.get('all_warnings', [])])
+    if not warning_items: warning_items = "<li style='color:#888'>Eşleşmeyen bileşen yok.</li>"
 
-    # 4. HTML'i Doldur ve Kaydet
+    # 3. HTML'i Doldur ve Kaydet
     html_content = HTML_TEMPLATE.format(
         report_date=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         scale_factor=results.get('scale_factor', 0.0),
+
         error_count=summary.get('error_count', 0),
         audit_count=summary.get('audit_count', 0),
-        success_count=summary.get('success_count', 0),
-        warning_count=summary.get('warning_count', 0),
+        layout_success_count=summary.get('layout_success_count', 0),
+        style_success_count=summary.get('style_success_count', 0),
+        warning_count=len(results.get('all_warnings', [])),
+
         image_comparison_html=image_comparison_html,
-        all_tables_html=all_tables_html,
+        layout_error_table=layout_error_table,
+        style_audit_table=style_audit_table,
+        layout_success_table=layout_success_table,
+        style_success_table=style_success_table,
         warning_items=warning_items
     )
 
@@ -377,10 +438,8 @@ def create_html_report(results, output_filename="report.html"):
         with open(output_filename, "w", encoding="utf-8") as f:
             f.write(html_content)
 
-        filepath = 'file://' + os.path.realpath(output_filename)
+        filepath = 'file://' 'Tüm Başarı' + os.path.realpath(output_filename)
         webbrowser.open(filepath, new=2)
-
         print(f"\n[Rapor] Dashboard başarıyla '{output_filename}' olarak oluşturuldu ve yeni bir sekmede açıldı.")
-
     except Exception as e:
         print(f"\n[Rapor] HATA: HTML dashboard yazılırken bir hata oluştu: {e}")

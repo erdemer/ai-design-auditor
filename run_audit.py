@@ -12,6 +12,8 @@ import argparse
 from pprint import pprint
 
 
+# import json # Artık debug için gerekmiyor
+
 def _crop_image(image_path, top_px, bottom_px, output_path):
     """
     Bir görüntüyü üstten ve alttan kırpar ve yeni bir dosyaya kaydeder.
@@ -61,7 +63,7 @@ def _images_are_identical(path1, path2):
 
 
 def main():
-    print("--- AI Design Auditor (v6.0 - AI Eşleştirmeli) Başlatılıyor ---")
+    print("--- AI Design Auditor (v4.3 - Hibrit Mod / Hata Düzeltmeli) Başlatılıyor ---")
 
     # 1. Girdi (Argüman) Kontrolü
     parser = argparse.ArgumentParser(description="AI Tasarım Denetimi Aracı (Hibrit Mod)")
@@ -99,7 +101,7 @@ def main():
             print(f"   App Parçaları:   {len(args.app_parts)} adet")
             sys.exit(1)
     else:
-        print("[Mod] 'Otomatik Mod' aktif. Cihaza ADB ile bağlanılacak.")
+        print("[Mod] 'Otomatik Mod' (ADB) aktif. ADB başarısız olursa yerel dosyalara bakılacak.")
 
     final_report = {
         "summary": {"error_count": 0, "success_count": 0, "warning_count": 0, "audit_count": 0},
@@ -111,11 +113,18 @@ def main():
     last_successful_ss_path = None
 
     if run_mode == "auto":
-        print("\n[Oto-Scroll] Başlangıç ekran görüntüsü (Base) alınıyor...")
+        print("\n[Oto-Mod] Başlangıç ekran görüntüsü (Base) alınıyor...")
         last_successful_ss_path = adb_client.take_screenshot(0)
+
         if not last_successful_ss_path:
-            print("HATA: Başlangıç SS'i alınamadı. ADB bağlantınızı kontrol edin.")
-            sys.exit(1)
+            print("[ADB Hatası] Başlangıç SS'i alınamadı.")
+            fallback_path = "app_screenshot_part_0.png"
+            if os.path.exists(fallback_path):
+                print(f"[Fallback] Yerel dosya bulundu: '{fallback_path}'. Analiz için bu kullanılacak.")
+                last_successful_ss_path = fallback_path
+            else:
+                print(f"HATA: ADB başarısız VE yerel dosya '{fallback_path}' bulunamadı.")
+                sys.exit(1)
 
     # --- ANA DÖNGÜ ---
     for i, figma_part_path in enumerate(args.figma_parts):
@@ -143,14 +152,18 @@ def main():
                 current_ss_path_for_analysis = last_successful_ss_path
             else:
                 print("[Oto-Scroll] Kaydırma deneniyor...")
-                if not adb_client.scroll_down(args.app_crop_top, args.app_crop_bottom):
-                    print("HATA: Cihaz kaydırılamadı. Denetim durduruluyor.")
-                    break
-
+                scroll_success = adb_client.scroll_down(args.app_crop_top, args.app_crop_bottom)
                 new_ss_path = adb_client.take_screenshot(part_index)
-                if not new_ss_path:
-                    print("HATA: Ekran görüntüsü alınamadı. Denetim durduruluyor.")
-                    break
+
+                if not scroll_success or not new_ss_path:
+                    print("[ADB Hatası] Kaydırma veya SS alma başarısız.")
+                    fallback_path = f"app_screenshot_part_{part_index}.png"
+                    if os.path.exists(fallback_path):
+                        print(f"[Fallback] Yerel dosya bulundu: '{fallback_path}'. Analiz için bu kullanılacak.")
+                        new_ss_path = fallback_path
+                    else:
+                        print(f"HATA: ADB başarısız VE yerel dosya '{fallback_path}' bulunamadı.")
+                        break
 
                 if _images_are_identical(last_successful_ss_path, new_ss_path):
                     print("\n[Oto-Scroll] HATA: Sayfanın sonuna ulaşıldı!")
@@ -164,12 +177,11 @@ def main():
                 last_successful_ss_path = new_ss_path
                 current_ss_path_for_analysis = new_ss_path
 
-            print(f"   App (Oto): '{current_ss_path_for_analysis}'")
+            print(f"   App (Oto/Fallback): '{current_ss_path_for_analysis}'")
 
         # 2. Adım: Görüntüleri Kırp (Opsiyonel)
         figma_cropped_path = figma_part_path
         if args.figma_crop_top > 0 or args.figma_crop_bottom > 0:
-            print("[Crop] Figma görüntüsü için kırpma uygulanıyor...")
             figma_cropped_path = _crop_image(
                 figma_part_path, args.figma_crop_top, args.figma_crop_bottom,
                 f"figma_cropped_part_{part_index}.png"
@@ -179,7 +191,6 @@ def main():
 
         app_cropped_path = current_ss_path_for_analysis
         if args.app_crop_top > 0 or args.app_crop_bottom > 0:
-            print("[Crop] App görüntüsü için kırpma uygulanıyor...")
             app_cropped_path = _crop_image(
                 current_ss_path_for_analysis, args.app_crop_top, args.app_crop_bottom,
                 f"app_cropped_part_{part_index}.png"
@@ -191,36 +202,36 @@ def main():
             print("HATA: Kırpma işlemi başarısız. Bu parça atlanıyor.")
             continue
 
-        # --- 3. Adım: AI EŞLEŞTİRME VE ANALİZ (V6 DEĞİŞİKLİĞİ) ---
-        # Artık 2 analiz yok, tek bir birleşik analiz var
-
+        # 3. Adım: AI Eşleştirme ve Analiz
         matched_pairs_json = image_analyzer.analyze_image_pair(figma_cropped_path, app_cropped_path)
+
+        # --- DEBUG KODU SİLİNDİ ---
+        # Artık 'comparator'a gitmeden önce durmuyoruz.
+        # --- BİTTİ ---
 
         if not matched_pairs_json:
             print("HATA: AI eşleştirme analizi başarısız. Bu parça atlanıyor.")
             final_report["all_warnings"].append(f"UYARI: Parça {part_index} AI tarafından analiz edilemedi.")
             continue
-        # --- BİTTİ ---
 
         # 4. Adım: Karşılaştır
         print(f"[Karşılaştırma] Parça {part_index} karşılaştırılıyor...")
         try:
             with PIL.Image.open(figma_cropped_path) as img:
                 figma_width = img.width
+
+            # --- HATA DÜZELTMESİ (v4.3) ---
             with PIL.Image.open(app_cropped_path) as img:
-                app_width = img.width
+                app_width = img.width  # 'img.img.width' DÜZELTİLDİ
+            # --- DÜZELTME BİTTİ ---
+
         except Exception as e:
             print(f"HATA: Kırpılmış görüntü boyutları okunurken hata: {e}. Parça atlanıyor.")
             continue
 
-        # comparator.py'ye artık 'figma_data' ve 'app_data' yerine 'matched_pairs_json' yolluyoruz
         results_part = comparator.compare_layouts(
-            matched_pairs_json,  # <-- DEĞİŞİKLİK
-            figma_width,
-            app_width,
-            config.DEFAULT_TOLERANCE_PX
+            matched_pairs_json, figma_width, app_width, config.DEFAULT_TOLERANCE_PX
         )
-        # --- BİTTİ ---
 
         # 5. Adım: Sonuçları Ana Rapora Ekle
         final_report["parts"].append({
@@ -236,9 +247,12 @@ def main():
         part_summary = results_part.get("summary", {})
         final_report["summary"]["error_count"] += part_summary.get("error_count", 0)
         final_report["summary"]["audit_count"] += part_summary.get("audit_count", 0)
-        final_report["summary"]["success_count"] += part_summary.get("success_count", 0)
-        # 'warnings' artık 'comparator'dan değil, direkt 'final_report'a ekleniyor.
-        # final_report["all_warnings"].extend(results_part.get("warnings", [])) # comparator artık warning üretmiyor
+        final_report["summary"]["success_count"] += part_summary.get("layout_success_count",
+                                                                     0)  # layout_success_count'u kullanalım
+        final_report["summary"]["style_success_count"] = part_summary.get("style_success_count",
+                                                                          0)  # (Bu, bir sonraki sürümde güncellendi)
+        final_report["summary"]["warning_count"] += part_summary.get("warning_count", 0)
+        final_report["all_warnings"].extend(results_part.get("warnings", []))
 
         if i == 0:
             final_report["scale_factor"] = results_part.get("scale_factor", 0.0)
@@ -248,8 +262,6 @@ def main():
     # 7. Adım: Final Raporunu Oluştur
     print("\n--- TÜM PARÇALAR İŞLENDİ. FİNAL RAPORU OLUŞTURULUYOR ---")
 
-    # report_generator.py (v3.0) bu yeni 'final_report' yapısıyla
-    # zaten uyumlu, değişiklik gerekmiyor.
     report_generator.create_html_report(final_report)
 
     print("-----------------------------------------------------")
