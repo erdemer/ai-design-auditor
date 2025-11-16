@@ -29,7 +29,7 @@ KURALLAR (ÇOK ÖNEMLİ):
 1.  EŞLEŞTİRME: Eşleştirmeyi bileşenin TİPİ (Text, Image, Icon, Container) ve GEOMETRİK KONUMUNA (örn: sol üstteki resim, ikinci başlık) göre yap.
 2.  İSİMLENDİRME: 'name' için JENERİK ve YAPISAL isimler kullan (örn: 'driver_image', 'stat_card_1', 'section_title_1').
 3.  HASSASİYET: 'bounds' kutuları, bileşenin GÖRÜNÜR piksellerine 'SIFIR PADDING' (zero-padding) ile SIKIŞIK (tight) olmalıdır.
-4.  GÜRÜLTÜ ENGELLEME: Sistem bileşenlerini (Status Bar, Navigation Bar) ve içindeki ikonları (pil, saat, wifi ikonu) TAMAMEN GÖRMEZDEN GEL. Onları listeye EKLEME.
+4.  GÜRÜLTÜ ENGELLEME: Sistem bileşenlerini (Status Bar, Navigation Bar) ve içindeki ikonları (pil, saat, wifi ikonu) TAMAMEN GÖRMEZDEN GEL. Onları JSON listesine EKLEME.
 
 JSON ÇIKTI FORMATI (SADECE BU FORMATTA BİR LİSTE DÖNDÜR):
 [
@@ -64,7 +64,6 @@ def _clean_json_response(raw_response):
     return raw_response.strip()
 
 
-# --- GÜNCELLENMİŞ FONKSİYON: Artık 2 resim alıyor ---
 def analyze_image_pair(figma_image_path: str, app_image_path: str):
     """
     İki görüntüyü (Figma ve App) Vision AI kullanarak karşılaştırır ve
@@ -83,7 +82,6 @@ def analyze_image_pair(figma_image_path: str, app_image_path: str):
         figma_img = PIL.Image.open(figma_image_path)
         app_img = PIL.Image.open(app_image_path)
 
-        # Modeli çalıştır (Prompt, Resim 1, Resim 2)
         response = vision_model.generate_content([
             SYSTEM_PROMPT,
             "Resim 1 (Figma Tasarımı):",
@@ -92,14 +90,12 @@ def analyze_image_pair(figma_image_path: str, app_image_path: str):
             app_img
         ])
 
-        # Yanıtı temizle ve JSON'a çevir
         cleaned_json_str = _clean_json_response(response.text)
 
-        # JSON'u parse et
         json_data = json.loads(cleaned_json_str)
 
         print(f"[AI] Analiz tamamlandı. {len(json_data)} adet EŞLEŞEN bileşen çifti bulundu.")
-        return json_data  # Bu, AI'den gelen eşleşmiş çiftlerin listesidir
+        return json_data
 
     except PIL.UnidentifiedImageError:
         print(f"[AI] HATA: Geçerli bir resim dosyası bulunamadı.")

@@ -63,7 +63,7 @@ def _images_are_identical(path1, path2):
 
 
 def main():
-    print("--- AI Design Auditor (v4.3 - Hibrit Mod / Hata Düzeltmeli) Başlatılıyor ---")
+    print("--- AI Design Auditor (v6.2 / v4.3 - Hibrit Mod) Başlatılıyor ---")
 
     # 1. Girdi (Argüman) Kontrolü
     parser = argparse.ArgumentParser(description="AI Tasarım Denetimi Aracı (Hibrit Mod)")
@@ -104,7 +104,8 @@ def main():
         print("[Mod] 'Otomatik Mod' (ADB) aktif. ADB başarısız olursa yerel dosyalara bakılacak.")
 
     final_report = {
-        "summary": {"error_count": 0, "success_count": 0, "warning_count": 0, "audit_count": 0},
+        "summary": {"error_count": 0, "layout_success_count": 0, "style_success_count": 0, "warning_count": 0,
+                    "audit_count": 0},
         "parts": [],
         "all_warnings": []
     }
@@ -202,12 +203,8 @@ def main():
             print("HATA: Kırpma işlemi başarısız. Bu parça atlanıyor.")
             continue
 
-        # 3. Adım: AI Eşleştirme ve Analiz
+        # 3. Adım: AI Eşleştirme ve Analiz (v6)
         matched_pairs_json = image_analyzer.analyze_image_pair(figma_cropped_path, app_cropped_path)
-
-        # --- DEBUG KODU SİLİNDİ ---
-        # Artık 'comparator'a gitmeden önce durmuyoruz.
-        # --- BİTTİ ---
 
         if not matched_pairs_json:
             print("HATA: AI eşleştirme analizi başarısız. Bu parça atlanıyor.")
@@ -219,12 +216,8 @@ def main():
         try:
             with PIL.Image.open(figma_cropped_path) as img:
                 figma_width = img.width
-
-            # --- HATA DÜZELTMESİ (v4.3) ---
             with PIL.Image.open(app_cropped_path) as img:
-                app_width = img.width  # 'img.img.width' DÜZELTİLDİ
-            # --- DÜZELTME BİTTİ ---
-
+                app_width = img.width
         except Exception as e:
             print(f"HATA: Kırpılmış görüntü boyutları okunurken hata: {e}. Parça atlanıyor.")
             continue
@@ -247,10 +240,8 @@ def main():
         part_summary = results_part.get("summary", {})
         final_report["summary"]["error_count"] += part_summary.get("error_count", 0)
         final_report["summary"]["audit_count"] += part_summary.get("audit_count", 0)
-        final_report["summary"]["success_count"] += part_summary.get("layout_success_count",
-                                                                     0)  # layout_success_count'u kullanalım
-        final_report["summary"]["style_success_count"] = part_summary.get("style_success_count",
-                                                                          0)  # (Bu, bir sonraki sürümde güncellendi)
+        final_report["summary"]["layout_success_count"] += part_summary.get("layout_success_count", 0)
+        final_report["summary"]["style_success_count"] += part_summary.get("style_success_count", 0)
         final_report["summary"]["warning_count"] += part_summary.get("warning_count", 0)
         final_report["all_warnings"].extend(results_part.get("warnings", []))
 

@@ -7,7 +7,7 @@ import base64
 from io import BytesIO
 import PIL.Image
 
-# --- HTML ŞABLONU (v4.6 - AYRILMIŞ BAŞARI SEKMELERİ) ---
+# --- HTML ŞABLONU (v4.8 - JS HATASI ve HTML TYPO DÜZELTİLDİ) ---
 HTML_TEMPLATE = """
 <html>
 <head>
@@ -159,7 +159,7 @@ HTML_TEMPLATE = """
         {style_audit_table}
     </div>
 
-    <div id="LayoutSuccesses" class.tabcontent">
+    <div id="LayoutSuccesses" class="tabcontent">
         {layout_success_table}
     </div>
 
@@ -217,17 +217,33 @@ HTML_TEMPLATE = """
             var figmaCanvas = document.getElementById('figma-canvas-part-' + partIndex);
             var appCanvas = document.getElementById('app-canvas-part-' + partIndex);
             var figmaImg = document.getElementById('figma-img-part-' + partIndex);
-            var appImg = document.getElementById('app-img-part-' + partIndex); 
 
-            if (!figmaCanvas || !appCanvas || !figmaImg || !appImg) return;
+            // --- JAVASCRIPT HATA DÜZELTMESİ (v4.8) ---
+            // 'app-img-part-'Gelen: Profil Düzente' + partIndex' YANLIŞTI
+            var appImg = document.getElementById('app-img-part-' + partIndex); 
+            // --- DÜZELTME BİTTİ ---
+
+            if (!figmaCanvas || !appCanvas || !figmaImg || !appImg) {{
+                console.error("Vurgulama için Canvas veya Resim elementi bulunamadı.");
+                return;
+            }}
 
             figmaCanvas.width = figmaImg.clientWidth;
             figmaCanvas.height = figmaImg.clientHeight;
             appCanvas.width = appImg.clientWidth;
             appCanvas.height = appImg.clientHeight;
 
-            var figmaScale = figmaCanvas.width / (figmaImg.naturalWidth || figmaImg.width);
-            var appScale = appCanvas.width / (appImg.naturalWidth || appImg.width);
+            // Resmin doğal boyutunu (naturalWidth) al, eğer yüklenmemişse width'i kullan
+            var figmaNaturalWidth = figmaImg.naturalWidth || figmaImg.width;
+            var appNaturalWidth = appImg.naturalWidth || appImg.width;
+
+            if (figmaNaturalWidth === 0 || appNaturalWidth === 0) {{
+                console.error("Resim boyutları 0, vurgulama yapılamıyor.");
+                return;
+            }}
+
+            var figmaScale = figmaCanvas.width / figmaNaturalWidth;
+            var appScale = appCanvas.width / appNaturalWidth;
 
             var fCtx = figmaCanvas.getContext('2d');
             fCtx.strokeStyle = '#F44336'; // Kırmızı Vurgu
@@ -245,7 +261,8 @@ HTML_TEMPLATE = """
     function clearAllCanvases() {{
         var allCanvases = document.querySelectorAll('.highlight-canvas');
         allCanvases.forEach(function(canvas) {{
-            canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+            var context = canvas.getContext('2d');
+            context.clearRect(0, 0, canvas.width, canvas.height);
         }});
     }}
 
@@ -267,7 +284,6 @@ HTML_TEMPLATE = """
         }});
     }}
 
-    // Sayfa yüklendiğinde ve yeniden boyutlandırıldığında kanvasları ayarla
     window.addEventListener('load', setupCanvases);
     window.addEventListener('resize', setupCanvases);
 </script>
@@ -289,7 +305,17 @@ def _format_style_details(style_data):
     html = "<ul>"
     all_keys = sorted(list(set(figma_styles.keys()) | set(app_styles.keys())))
     for key in all_keys:
-        figma_val, app_val = figma_styles.get(key, "N/A"), app_styles.get(key, "N/A")
+        figma_val, app_val = figma_styles.get(key, "N/A"), figma_styles.get(key, "N/A")
+
+        # 'content' anahtarı için özel olarak HTML escape etme
+        if key == 'content':
+            try:
+                figma_val = figma_val.replace("&", "&amp;").replace("<", "&lt;").replace(">",
+                                                                                         "&gt;") if figma_val else "N/A"
+                app_val = app_val.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;") if app_val else "N/A"
+            except Exception:
+                pass  # Eğer NoneType vb. ise
+
         status_icon = "✅" if figma_val == app_val else "🎨"
         html += f"<li><strong>{key}:</strong> {status_icon} Beklenen: {figma_val} | Gelen: {app_val}</li>"
     html += "</ul>"
@@ -349,7 +375,12 @@ def _create_row_html(comp, part_index):
 
     row_html += f'<div class="details-col"><h4>Stil Denetimi ({_get_status_icon(comp["overall_style_status"])})</h4>{_format_style_details(tests["style"])}</div>'
 
-    row_html += f'<div class="details-col"><h4>Ham Veri</h4><pre>Figma: {json.dumps(raw_data["figma"], indent=2)}\nApp: {json.dumps(raw_data["app"], indent=2)}</pre></div>'
+    # --- DÜZELTME BURADA (v4.7 - ensure_ascii) ---
+    row_html += f'<div class="details-col"><h4>Ham Veri</h4>'
+    row_html += f'<pre>Figma: {json.dumps(raw_data["figma"], indent=2, ensure_ascii=False)}\n'
+    row_html += f'App: {json.dumps(raw_data["app"], indent=2, ensure_ascii=False)}</pre>'
+    row_html += '</div>'
+
     row_html += '</div></td></tr>'
 
     return row_html
@@ -358,7 +389,6 @@ def _create_row_html(comp, part_index):
 def _generate_table_content(report_parts, filter_type):
     """
     Belirli bir filtreye göre (error, audit, success) tablo içeriği oluşturur.
-    (GÜNCELLENMİŞ v4.6 FİLTRELEME MANTIĞI)
     """
     rows_html = ""
     has_data = False
@@ -378,14 +408,17 @@ def _generate_table_content(report_parts, filter_type):
                     should_add = True
 
             elif filter_type == "style_audit":
+                # Stil farkı varsa, layout durumu ne olursa olsun göster (v4.3 Düzeltmesi)
                 if style_status == 'audit':
                     should_add = True
 
             elif filter_type == "layout_success":
+                # SADECE Layout başarılı olanları göster
                 if layout_status == 'pass':
                     should_add = True
 
             elif filter_type == "style_success":
+                # SADECE Stil başarılı olanları göster
                 if style_status == 'pass':
                     should_add = True
 
@@ -404,7 +437,7 @@ def _generate_table_content(report_parts, filter_type):
 def create_html_report(results, output_filename="report.html"):
     summary = results.get('summary', {})
 
-    # 1. Tabloları oluştur (YENİ SEKMELER EKLENDİ)
+    # 1. Tabloları oluştur
     layout_error_table = _generate_table_content(results.get("parts", []), "layout_error")
     style_audit_table = _generate_table_content(results.get("parts", []), "style_audit")
     layout_success_table = _generate_table_content(results.get("parts", []), "layout_success")
@@ -438,7 +471,7 @@ def create_html_report(results, output_filename="report.html"):
         with open(output_filename, "w", encoding="utf-8") as f:
             f.write(html_content)
 
-        filepath = 'file://' 'Tüm Başarı' + os.path.realpath(output_filename)
+        filepath = 'file://' + os.path.realpath(output_filename)
         webbrowser.open(filepath, new=2)
         print(f"\n[Rapor] Dashboard başarıyla '{output_filename}' olarak oluşturuldu ve yeni bir sekmede açıldı.")
     except Exception as e:
