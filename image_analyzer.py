@@ -2,125 +2,221 @@
 import google.generativeai as genai
 import config
 import PIL.Image
+import PIL.ImageDraw
+import PIL.ImageFont
 import json
 import re
+import os
+import math
 
+# Yapılandırma ve Model Hazırlığı
 try:
     genai.configure(api_key=config.GOOGLE_API_KEY)
+    # Görsel analiz için en iyi model
     vision_model = genai.GenerativeModel("gemini-2.5-pro")
 except Exception as e:
-    print(f"[AI] Gemini modeli yüklenirken hata oluştu: {e}")
+    print(f"[AI] Model yüklenirken hata oluştu: {e}")
     vision_model = None
 
+# Uzun ekran görüntülerini bölmek için dilim yüksekliği
+SLICE_HEIGHT = 1920
 
+# --- GÜNCELLENMİŞ SİSTEM TALİMATI (V4) ---
 SYSTEM_PROMPT = """
-Sen, bir UI/UX tasarımını piksel hassasiyetinde analiz eden bir uzmansın.
-Görevin, sana verilen TEK bir görüntüdeki TÜM görünür UI bileşenlerini (Text, Image, Button, Icon, Container/Card) tespit etmektir.
-HASSASİYET çok önemlidir. Bu bir kedi/köpek resmi değil, bu bir UI layout'u.
+Sen uzman bir UI Test Otomasyon mühendisisin. Görevin bu mobil uygulama ekran görüntüsündeki GÖRSEL NESNELERİ tespit etmektir.
+Yorum yapma, sadece gördüğün somut nesneleri işaretle.
 
-Sonucu, bir JSON listesi olarak döndür. Başka HİÇBİR açıklama metni ekleme.
-Sadece JSON listesini tek bir kod bloğu (```json ... ```) içinde ver.
+1. TESPİT KURALLARI:
+   - "Text": Tüm görünür metinler, etiketler, başlıklar, telefon numaraları.
+   - "Button": Tıklanabilir olduğu belli olan, çerçeveli veya renkli dolgulu alanlar.
+   - "Icon": Geri oku, çarpı, tik, menü ikonları gibi simgeler.
+   - "Input": Metin girilebilen alanlar (Genelde gri çizgili veya kutulu).
+   - "Image": Kullanıcı avatarları, ürün resimleri vb.
 
-KURALLAR:
-1. 'bounds' kutuları, bileşenin GÖRÜNÜR piksellerine sıkı (tight) olmalı.
-2. Status bar, navigation bar, sistem ikonları (saat, wifi, pil, back gesture bar) JSON'a eklenmeyecek.
-3. 'name' için jenerik, yapısal isimler kullan (örn: 'header_title', 'profile_avatar', 'primary_button').
+2. İSİMLENDİRME KURALLARI (ÇOK ÖNEMLİ):
+   - "name" alanına, bileşenin üzerindeki metni veya işlevini yaz.
+   - Örnek: "giris_yap_butonu", "kullanici_adi_label", "geri_don_ikonu".
+   - ASLA "text_1", "button_2" gibi anlamsız, jenerik isimler verme.
 
-JSON YAPISI (her bileşen için):
-{
-  "name": "jenerik_ve_sirali_snake_case_isim",
-  "type": "Text | Image | Icon | Container",
-  "bounds": { "x": 0, "y": 0, "w": 0, "h": 0 },
-  "text_content": "Eğer 'Text' tipindeyse metin, değilse null",
-  "estimated_color": "Eğer 'Text' veya 'Icon' ise TAHMINI hex renk, değilse null",
-  "estimated_fontSize_dp": "Eğer 'Text' ise TAHMINI font boyutu (sadece sayı, dp), değilse null",
-  "estimated_backgroundColor": "Eğer 'Container' veya 'Button' ise TAHMINI hex arka plan rengi, değilse null"
-}
+3. YASAKLAR VE FİLTRELER:
+   - "Container", "View", "Group" gibi kapsayıcıları ASLA alma. Sadece en uç (leaf) elemanları al.
+   - İçinde metin veya ikon olmayan BOŞ ALANLARI, arka planları ASLA işaretleme.
+   - Hata mesajlarını (kırmızı uyarı yazıları) "Button" veya "Input" sanma; onlar "Text"tir.
+
+JSON ÇIKTI FORMATI:
+[
+  {
+    "name": "kaydet_butonu",
+    "type": "Button",
+    "bounds": { "x": 0, "y": 0, "w": 100, "h": 50 },
+    "text_content": "Kaydet", 
+    "estimated_color": "#FFFFFF",
+    "estimated_fontSize_dp": 16,
+    "estimated_backgroundColor": "#E30613"
+  }
+]
+Sadece saf JSON döndür. Markdown (```json) kullanma.
 """
 
 
 def _extract_json_from_response(text: str):
-    """
-    Gemini cevabından ```json ... ``` bloğunu söküp çıkarır.
-    - Önce ```json ... ``` arar
-    - Bulamazsa ``` ... ``` arar
-    - En sonda da [ ile başlayan JSON'u çıkarmayı dener
-    """
-    if not text:
-        return None
-
-    # 1) ```json ... ``` bloğu (DOĞRUSU: \s, tek backslash!)
+    """AI yanıtından saf JSON'ı ayıklar."""
+    if not text: return None
+    # Markdown temizliği
     match = re.search(r"```json\s*(.*?)```", text, re.DOTALL | re.IGNORECASE)
-    if match:
-        return match.group(1).strip()
-
-    # 2) Sıradan ``` ... ``` bloğu
+    if match: return match.group(1).strip()
     match = re.search(r"```(.*?)```", text, re.DOTALL)
-    if match:
-        return match.group(1).strip()
+    if match: return match.group(1).strip()
 
-    # 3) Son çare: ilk '[' ile son ']' arasını al
+    # Köşeli parantez bul ve ayıkla
     start = text.find("[")
     end = text.rfind("]")
     if start != -1 and end != -1 and end > start:
-        return text[start : end + 1].strip()
-
-    # Hiçbiri tutmadıysa, komple metni döndür
+        return text[start: end + 1].strip()
     return text.strip()
 
 
-def analyze_image(image_path: str):
+def _save_debug_image(original_image_path, json_data):
     """
-    Verilen görüntüyü (Figma SS veya App SS) Gemini ile analiz eder ve
-    JSON listesi döndürür. Hata olursa None döner.
+    Analiz sonucunu görselleştirir.
+    Kutuların üzerine Tip ve İsim yazar.
     """
-    if not vision_model:
-        print("[AI] Uyarı: Gemini modeli yüklü değil, analiz yapılamıyor.")
-        return None
-
     try:
-        image = PIL.Image.open(image_path)
-    except FileNotFoundError:
-        print(f"[AI] HATA: Görüntü dosyası bulunamadı: {image_path}")
-        return None
+        img = PIL.Image.open(original_image_path).convert("RGB")
+        draw = PIL.ImageDraw.Draw(img)
+
+        # Renk Paleti
+        colors = {
+            "Text": "blue",
+            "Button": "#00FF00",  # Parlak Yeşil
+            "Icon": "magenta",
+            "Input": "orange",
+            "Image": "cyan",
+            "Container": "red"  # Olmaması gerekenler kırmızı
+        }
+
+        for comp in json_data:
+            b = comp.get("bounds")
+            ctype = comp.get("type", "Container")
+            cname = comp.get("name", "unknown")
+            color = colors.get(ctype, "red")
+
+            if b:
+                x, y, w, h = b['x'], b['y'], b['w'], b['h']
+
+                # 1. Kutuyu Çiz
+                draw.rectangle([x, y, x + w, y + h], outline=color, width=3)
+
+                # 2. Etiket Yaz (Arka planlı)
+                # Metin: "Type: Name"
+                label = f"{ctype}: {cname}"
+
+                # Metin boyutunu kabaca hesapla (Font yüklemeyle uğraşmadan)
+                text_w = len(label) * 7
+                text_h = 14
+
+                # Etiket kutusunun konumu (Kutunun hemen üstü veya içi)
+                # Eğer kutu çok yukarıdaysa içine yaz, değilse üstüne yaz.
+                label_y = y - 16 if y > 16 else y
+
+                # Etiket arka planı
+                draw.rectangle([x, label_y, x + text_w, label_y + text_h], fill=color)
+
+                # Etiket yazısı (Beyaz)
+                draw.text((x + 2, label_y), label, fill="white")
+
+        base_name = os.path.basename(original_image_path)
+        debug_filename = f"DEBUG_AI_VISION_{base_name}"
+        img.save(debug_filename)
+        print(f"[DEBUG] Görsel kaydedildi: {debug_filename}")
+
     except Exception as e:
-        print(f"[AI] HATA: Görüntü açılırken hata: {e}")
-        return None
+        print(f"[DEBUG] Resim çizme hatası: {e}")
 
+
+def _analyze_single_slice(pil_image, offset_y, part_no):
+    """Tek bir görüntü dilimini analiz eder."""
     try:
-        print(f"[AI] '{image_path}' için UI bileşen analizi isteniyor...")
-        response = vision_model.generate_content(
-            [
-                SYSTEM_PROMPT,
-                image,
-            ]
-        )
+        print(f"   -> [AI] Parça {part_no} analiz ediliyor (Offset: {offset_y})...")
+        response = vision_model.generate_content([SYSTEM_PROMPT, pil_image])
 
         raw_text = getattr(response, "text", str(response))
-        cleaned_json_str = _extract_json_from_response(raw_text)
+        json_str = _extract_json_from_response(raw_text)
 
-        if not cleaned_json_str:
-            print("[AI] HATA: Yanıttan JSON çıkarılamadı (boş).")
-            return None
+        if not json_str:
+            print(f"   -> [UYARI] Parça {part_no} boş veri döndü.")
+            return []
 
-        try:
-            json_data = json.loads(cleaned_json_str)
-        except json.JSONDecodeError as e:
-            print("[AI] HATA: AI'den gelen yanıt JSON formatında değil.")
-            print(f"   JSONDecodeError: {e}")
-            print(f"   Gelen Ham Veri (ilk 300): {raw_text[:300]!r}")
-            return None
+        data = json.loads(json_str)
+        if not isinstance(data, list): return []
 
-        if not isinstance(json_data, list):
-            print("[AI] Uyarı: JSON liste değil, yine de döndürüyorum.")
-        else:
-            print(f"[AI] Analiz tamamlandı. {len(json_data)} adet bileşen bulundu.")
+        valid_data = []
+        for comp in data:
+            if "bounds" in comp:
+                # Koordinatları global konuma oturt
+                comp["bounds"]["y"] += offset_y
 
-        return json_data
+                # --- PYTHON TARAFI FİLTRELEME ---
+                # AI bazen prompta uymaz, burada ikinci bir güvenlik kontrolü yapıyoruz.
+                c_type = comp.get("type", "")
+                c_text = comp.get("text_content", "")
 
-    except PIL.UnidentifiedImageError:
-        print(f"[AI] HATA: '{image_path}' geçerli bir resim dosyası değil.")
-        return None
+                # Eğer tipi Container ise ve metin yoksa -> ÇÖP (Hayalet Kutu)
+                if c_type == "Container" and not c_text:
+                    continue
+
+                    # Eğer sınırları (bounds) 0 veya negatifse -> ÇÖP
+                if comp["bounds"]["w"] <= 0 or comp["bounds"]["h"] <= 0:
+                    continue
+
+                valid_data.append(comp)
+
+        return valid_data
     except Exception as e:
-        print(f"[AI] HATA: Görüntü analizi sırasında beklenmedik bir hata oluştu: {e}")
+        print(f"   -> [HATA] Parça {part_no} analiz hatası: {e}")
+        return []
+
+
+def analyze_image(image_path: str):
+    """Ana analiz fonksiyonu."""
+    if not vision_model:
+        print("[AI] Model yüklü değil.")
+        return None
+
+    try:
+        full_img = PIL.Image.open(image_path)
+        width, total_height = full_img.size
+
+        final_json = []
+
+        # Resim kısaysa tek seferde işle
+        if total_height <= SLICE_HEIGHT:
+            print("[AI] Tek parça analiz ediliyor...")
+            final_json = _analyze_single_slice(full_img, 0, 1)
+        else:
+            # Resim uzunsa parçala
+            num_slices = math.ceil(total_height / SLICE_HEIGHT)
+            print(f"[AI] Resim {total_height}px yüksekliğinde, {num_slices} parçaya bölünüyor...")
+
+            for i in range(num_slices):
+                top = i * SLICE_HEIGHT
+                bottom = min(top + SLICE_HEIGHT, total_height)
+
+                # Son parça çok küçükse atla (Gürültü ve yarım bileşen riski)
+                if (bottom - top) < 50 and i > 0:
+                    continue
+
+                slice_img = full_img.crop((0, top, width, bottom))
+                slice_data = _analyze_single_slice(slice_img, top, i + 1)
+                final_json.extend(slice_data)
+
+        print(f"[AI] Analiz bitti. Toplam {len(final_json)} bileşen bulundu.")
+
+        # Debug görselini kaydet
+        _save_debug_image(image_path, final_json)
+
+        return final_json
+
+    except Exception as e:
+        print(f"[AI] Kritik Hata: {e}")
         return None

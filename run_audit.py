@@ -257,6 +257,14 @@ def main():
                         config.DEFAULT_TOLERANCE_PX
                     )
                 else:
+                    # --- DEBUG: JSON'ları kaydet ---
+                    import json
+                    with open(f"debug_figma_part_{part_index}.json", "w") as f:
+                        json.dump(figma_data_json, f, indent=2)
+                    with open(f"debug_app_part_{part_index}.json", "w") as f:
+                        json.dump(app_data_json, f, indent=2)
+                    print(f"[Debug] JSON verileri 'debug_figma_part_{part_index}.json' ve 'debug_app_part_{part_index}.json' dosyalarına kaydedildi.")
+
                     results_part = comparator.compare_layouts_ai(
                         figma_data_json,
                         app_data_json,

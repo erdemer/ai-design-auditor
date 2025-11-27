@@ -15,12 +15,9 @@ if not GOOGLE_API_KEY:
 
 # Karşılaştırma için tolerans
 DEFAULT_TOLERANCE_PX = 18
+DIMENSION_TOLERANCE_PERCENT = 0.15
 
 # Uygulama tarafının hangi analiz modu ile okunacağını belirler:
 # - 'xml': UIAutomator XML'den okunur (mevcut davranış, sadece layout + metin).
 # - 'ai':  App ekran görüntüsü de Gemini ile analiz edilir (stil + layout).
 APP_ANALYSIS_MODE = os.getenv("APP_ANALYSIS_MODE", "ai").lower()
-
-# Stil karşılaştırması için toleranslar
-COLOR_TOLERANCE = int(os.getenv("COLOR_TOLERANCE", "25"))          # 0-441 arası (RGB mesafesi)
-FONT_TOLERANCE_DP = float(os.getenv("FONT_TOLERANCE_DP", "1.0"))   # dp farkı

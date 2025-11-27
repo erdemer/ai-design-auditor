@@ -7,7 +7,7 @@ import base64
 from io import BytesIO
 import PIL.Image
 
-# --- HTML ŞABLONU ({} kaçışları düzeltilmiş) ---
+# --- HTML ŞABLONU ---
 HTML_TEMPLATE = """
 <html>
 <head>
@@ -105,16 +105,29 @@ HTML_TEMPLATE = """
         margin-bottom: 10px;
         color: #FFFFFF;
     }}
-    .image-container img {{
-        max-width: 100%;
+
+    /* Görsel Kapsayıcı */
+    .img-wrapper {{
+        position: relative;
+        width: 100%;
+        /* Resimlerin taşmasını engeller */
+        overflow: hidden; 
+    }}
+
+    .img-wrapper img {{
         display: block;
+        width: 100%;
+        height: auto;
         border-radius: 4px;
     }}
+
+    /* Canvas tam olarak resmin üzerine oturur */
     .highlight-canvas {{
         position: absolute;
-        top: 32px;
-        left: 10px;
+        top: 0;
+        left: 0;
         pointer-events: none;
+        /* Width ve Height JS ile dinamik verilecek */
     }}
 
     .legend {{
@@ -167,12 +180,13 @@ HTML_TEMPLATE = """
         canvases.forEach(function(cv) {{
             var ctx = cv.getContext('2d');
             ctx.clearRect(0, 0, cv.width, cv.height);
+            // Canvas boyutunu sıfırla ki sayfa düzenini bozmasın
+            cv.width = 0; 
+            cv.height = 0;
         }});
     }}
 
-    // figmaBoundsData: Figma AI'nin verdiği bounds
-    // appBoundsData:   App AI'nin verdiği bounds (varsa)
-    function highlightComponent(row, partIndex, figmaBoundsData, appBoundsData) {{
+    function highlightComponent(row, partIndex) {{
         var isOpening = !(activeRow === row);
 
         if (activeRow) {{
@@ -185,12 +199,21 @@ HTML_TEMPLATE = """
             activeRow = row;
 
             try {{
-                var figmaBounds = JSON.parse(figmaBoundsData);
+                // 1. Verileri HTML Attribute'dan oku (Syntax Error önlemi)
+                var figmaBoundsData = row.getAttribute('data-figma-bounds');
+                var appBoundsData = row.getAttribute('data-app-bounds');
+
+                var figmaBounds = null;
+                if (figmaBoundsData) {{
+                    figmaBounds = JSON.parse(figmaBoundsData);
+                }}
+
                 var appBounds = null;
                 if (appBoundsData && appBoundsData !== "null" && appBoundsData !== "") {{
                     appBounds = JSON.parse(appBoundsData);
                 }}
 
+                // 2. Elementleri Bul
                 var figmaCanvas = document.getElementById('figma-canvas-part-' + partIndex);
                 var appCanvas = document.getElementById('app-canvas-part-' + partIndex);
                 var figmaImg = document.getElementById('figma-img-part-' + partIndex);
@@ -198,55 +221,71 @@ HTML_TEMPLATE = """
 
                 if (!figmaCanvas || !appCanvas || !figmaImg || !appImg) return;
 
-                figmaCanvas.width = figmaImg.clientWidth;
-                figmaCanvas.height = figmaImg.clientHeight;
-                appCanvas.width = appImg.clientWidth;
-                appCanvas.height = appImg.clientHeight;
+                // 3. GÖRÜNEN Boyutları Al (Responsive düzeltmesi)
+                // getBoundingClientRect() o anki ekran boyutlarını verir.
+                var figmaRect = figmaImg.getBoundingClientRect();
+                var appRect = appImg.getBoundingClientRect();
 
-                var figmaNaturalWidth = figmaImg.naturalWidth || figmaImg.clientWidth;
-                var figmaScale = figmaImg.clientWidth / figmaNaturalWidth;
+                // 4. Canvas Boyutunu Görünene Eşitle
+                figmaCanvas.width = figmaRect.width;
+                figmaCanvas.height = figmaRect.height;
 
-                var appNaturalWidth = appImg.naturalWidth || appImg.clientWidth;
-                var appScale = appImg.clientWidth / appNaturalWidth;
+                appCanvas.width = appRect.width;
+                appCanvas.height = appRect.height;
 
-                var scaleFactor = {scale_factor};
+                // 5. Çizim Oranlarını Hesapla
+                // Orijinal Veri (JSON) -> Görünen Resim Oranı
+                var figmaScaleX = figmaRect.width / figmaImg.naturalWidth;
+                var figmaScaleY = figmaRect.height / figmaImg.naturalHeight;
+
+                var appScaleX = appRect.width / appImg.naturalWidth;
+                var appScaleY = appRect.height / appImg.naturalHeight;
+
+                // Global Scale Factor (Python'dan gelir, Figma ile App arasındaki doğal boyut farkı)
+                var globalScaleFactor = {scale_factor};
 
                 var figmaCtx = figmaCanvas.getContext('2d');
                 var appCtx = appCanvas.getContext('2d');
 
-                // --- Figma tarafında AI'nin verdiği gerçek bounds ---
+                // --- A) FIGMA KUTUSU ÇİZİMİ ---
                 if (figmaBounds && typeof figmaBounds.x !== "undefined") {{
-                    figmaCtx.strokeStyle = 'red';
-                    figmaCtx.lineWidth = 2;
+                    figmaCtx.strokeStyle = '#00FF00'; // Yeşil
+                    figmaCtx.lineWidth = 3;
                     figmaCtx.strokeRect(
-                        figmaBounds.x * figmaScale,
-                        figmaBounds.y * figmaScale,
-                        figmaBounds.w * figmaScale,
-                        figmaBounds.h * figmaScale
+                        figmaBounds.x * figmaScaleX,
+                        figmaBounds.y * figmaScaleY,
+                        figmaBounds.w * figmaScaleX,
+                        figmaBounds.h * figmaScaleY
                     );
                 }}
 
-                // --- App tarafında, mümkünse AI'nin verdiği gerçek app bounds'u kullan ---
+                // --- B) APP KUTUSU ÇİZİMİ ---
                 if (appBounds && typeof appBounds.x !== "undefined") {{
-                    appCtx.strokeStyle = 'red';
-                    appCtx.lineWidth = 2;
+                    // AI veya XML'den gelen gerçek App koordinatı varsa
+                    appCtx.strokeStyle = '#FF0000'; // Kırmızı
+                    appCtx.lineWidth = 3;
                     appCtx.strokeRect(
-                        appBounds.x * appScale,
-                        appBounds.y * appScale,
-                        appBounds.w * appScale,
-                        appBounds.h * appScale
+                        appBounds.x * appScaleX,
+                        appBounds.y * appScaleY,
+                        appBounds.w * appScaleX,
+                        appBounds.h * appScaleY
                     );
                 }} else if (figmaBounds && typeof figmaBounds.x !== "undefined") {{
-                    // Fallback: Eğer appBounds yoksa, figmaBounds'i scale_factor ile tahmin et
-                    var appX = figmaBounds.x * scaleFactor * appScale;
-                    var appY = figmaBounds.y * scaleFactor * appScale;
-                    var appW = figmaBounds.w * scaleFactor * appScale;
-                    var appH = figmaBounds.h * scaleFactor * appScale;
+                    // Fallback: App verisi yoksa Figma koordinatını App tarafına uyarla
+                    // Mantık: (FigmaCoord * GlobalScale) * AppScreenRatio
 
-                    appCtx.strokeStyle = 'red';
-                    appCtx.lineWidth = 2;
-                    appCtx.strokeRect(appX, appY, appW, appH);
+                    var estimatedAppX = (figmaBounds.x * globalScaleFactor) * appScaleX;
+                    var estimatedAppY = (figmaBounds.y * globalScaleFactor) * appScaleY;
+                    var estimatedAppW = (figmaBounds.w * globalScaleFactor) * appScaleX;
+                    var estimatedAppH = (figmaBounds.h * globalScaleFactor) * appScaleY;
+
+                    appCtx.strokeStyle = 'orange'; // Turuncu (Tahmin)
+                    appCtx.lineWidth = 3;
+                    appCtx.setLineDash([5, 3]); // Kesikli çizgi
+                    appCtx.strokeRect(estimatedAppX, estimatedAppY, estimatedAppW, estimatedAppH);
+                    appCtx.setLineDash([]);
                 }}
+
             }} catch (e) {{
                 console.error("highlightComponent hatası:", e);
             }}
@@ -273,7 +312,7 @@ HTML_TEMPLATE = """
     </div>
 
     <h2>Görüntü Karşılaştırması</h2>
-    <p style="color: #aaa;">Kontrol listesinden bir satıra tıkladığında, ilgili Figma bileşeni ve App'teki AI tespitlerine göre çizilen kutular kırmızı olarak vurgulanır.</p>
+    <p style="color: #aaa;">Kontrol listesinden bir satıra tıkladığında, ilgili Figma bileşeni ve App'teki AI tespitlerine göre çizilen kutular vurgulanır.</p>
     <div class="image-comparison-area">
         {image_comparison_html}
     </div>
@@ -289,7 +328,7 @@ HTML_TEMPLATE = """
     {component_tables_html}
 
     <h2>Figma Bileşen Kontrol Listesi</h2>
-    <p style="color: #aaa;">Aşağıdaki tabloda, Figma ekranındaki AI'nin tespit ettiği tüm bileşenler listelenmiştir. Bir satıra tıkladığında, üstteki Figma görüntüsünde ilgili bölge kırmızı kutu ile vurgulanır (App tarafı için AI bounds yoksa sadece Figma tarafı vurgulanır).</p>
+    <p style="color: #aaa;">Aşağıdaki tabloda, Figma ekranındaki AI'nin tespit ettiği tüm bileşenler listelenmiştir.</p>
     {all_tables_html}
 
 </body>
@@ -302,9 +341,19 @@ def _embed_image_as_base64(image_path):
         return ""
     try:
         img = PIL.Image.open(image_path)
+        # Rapor performansını artırmak için görseli makul bir boyuta çekiyoruz
+        # Ancak Aspect Ratio bozulmamalı.
+        max_width = 800
+        if img.width > max_width:
+            ratio = max_width / img.width
+            new_size = (max_width, int(img.height * ratio))
+            img = img.resize(new_size, PIL.Image.LANCZOS)
+
         buffered = BytesIO()
-        img.save(buffered, format="PNG")
-        return base64.b64encode(buffered.getvalue()).decode("utf-8")
+        img.save(buffered, format="PNG", optimize=True)
+        base64_bytes = base64.b64encode(buffered.getvalue())
+        base64_str = base64_bytes.decode('ascii')
+        return base64_str
     except Exception as e:
         print(f"[Rapor] Resim base64'e çevrilemedi: {e}")
         return ""
@@ -324,16 +373,26 @@ def _generate_image_comparison_html(report_parts):
 
         html += f"<h2>Parça {part_index}</h2>"
         html += '<div class="image-pair">'
+
+        # --- FIGMA BLOCK ---
         html += '<div class="image-container">'
         html += f'  <h3>Figma Parçası {part_index}</h3>'
-        html += f'  <img src="data:image/png;base64,{figma_base64}" alt="Figma" id="figma-img-part-{part_index}">'
-        html += f'  <canvas id="figma-canvas-part-{part_index}" class="highlight-canvas"></canvas>'
+        # Wrapper ekliyoruz ki Canvas resmin üzerine tam otursun
+        html += '  <div class="img-wrapper">'
+        html += f'    <img src="data:image/png;base64,{figma_base64}" alt="Figma" id="figma-img-part-{part_index}">'
+        html += f'    <canvas id="figma-canvas-part-{part_index}" class="highlight-canvas"></canvas>'
+        html += '  </div>'
         html += '</div>'
+
+        # --- APP BLOCK ---
         html += '<div class="image-container">'
         html += f'  <h3>App Parçası {part_index}</h3>'
-        html += f'  <img src="data:image/png;base64,{app_base64}" alt="App" id="app-img-part-{part_index}">'
-        html += f'  <canvas id="app-canvas-part-{part_index}" class="highlight-canvas"></canvas>'
+        html += '  <div class="img-wrapper">'
+        html += f'    <img src="data:image/png;base64,{app_base64}" alt="App" id="app-img-part-{part_index}">'
+        html += f'    <canvas id="app-canvas-part-{part_index}" class="highlight-canvas"></canvas>'
+        html += '  </div>'
         html += '</div>'
+
         html += '</div>'
     return html
 
@@ -347,18 +406,12 @@ def _format_figma_spec(comp_spec):
         html += f"<li><strong>Bounds:</strong> x={b.get('x')}, y={b.get('y')}, w={b.get('w')}, h={b.get('h')}</li>"
     if comp_spec.get("text_content"):
         html += f"<li><strong>Metin:</strong> {comp_spec['text_content']}</li>"
-    if comp_spec.get("estimated_color"):
-        html += f"<li><strong>Metin Rengi (tahmini):</strong> {comp_spec['estimated_color']}</li>"
-    if comp_spec.get("estimated_fontSize_dp") is not None:
-        html += f"<li><strong>Font Boyutu (tahmini):</strong> {comp_spec['estimated_fontSize_dp']} dp</li>"
-    if comp_spec.get("estimated_backgroundColor"):
-        html += f"<li><strong>Arka Plan Rengi (tahmini):</strong> {comp_spec['estimated_backgroundColor']}</li>"
     html += "</ul>"
     return html
 
 
 def _generate_all_tables_html(report_parts):
-    """Figma bileşenlerini (sadece Figma tarafı) listeleyen tablolar."""
+    """Figma bileşenlerini listeleyen tablolar."""
     all_tables_html = ""
     for part_data in report_parts:
         part_index = part_data.get("part_index", 0)
@@ -381,11 +434,12 @@ def _generate_all_tables_html(report_parts):
         rows = []
         for comp in sorted_specs:
             bounds_json = json.dumps(comp.get("bounds", {}))
-            bounds_json_attr = bounds_json.replace("'", "&#39;")
-            # Figma-only: appBoundsData boş string
+            # HTML içinde güvenli hale getirmek için escape
+            bounds_json_attr = bounds_json.replace('"', '&quot;')
+
             rows.append(
-                f'<tr class="component-row" onclick="highlightComponent(this, {part_index}, \'{bounds_json_attr}\', \'\')" '
-                f'data-figma-bounds=\'{bounds_json_attr}\'>'
+                f'<tr class="component-row" onclick="highlightComponent(this, {part_index})" '
+                f'data-figma-bounds="{bounds_json_attr}">'
             )
             rows.append(f'  <td><strong>{comp.get("name", "isimsiz")}</strong></td>')
             rows.append(f'  <td>{_format_figma_spec(comp)}</td>')
@@ -415,9 +469,6 @@ def _bounds_text(bounds: dict) -> str:
 
 
 def _generate_component_comparison_tables_html(report_parts):
-    """
-    Figma ↔ App matched_components üzerinden component component karşılaştırma tablosu üretir.
-    """
     html = ""
     for part_data in report_parts:
         part_index = part_data.get("part_index", 0)
@@ -445,8 +496,9 @@ def _generate_component_comparison_tables_html(report_parts):
 
         rows = []
         for mc in sorted_matched:
-            figma_comp = mc.get("figma_analysis", {}) or {}
-            app_comp = mc.get("app_analysis", {}) or {}
+            raw_data = mc.get("raw_data", {})
+            figma_comp = raw_data.get("figma_analysis", {}) or {}
+            app_comp = raw_data.get("app_analysis", {}) or {}
             name = (mc.get("name")
                     or figma_comp.get("name")
                     or app_comp.get("name")
@@ -464,15 +516,15 @@ def _generate_component_comparison_tables_html(report_parts):
             style_msg_html = "<br>".join(style_messages)
 
             figma_bounds_json = json.dumps(figma_bounds)
-            figma_bounds_attr = figma_bounds_json.replace("'", "&#39;")
+            figma_bounds_attr = figma_bounds_json.replace('"', '&quot;')
 
             app_bounds_json = json.dumps(app_bounds)
-            app_bounds_attr = app_bounds_json.replace("'", "&#39;")
+            app_bounds_attr = app_bounds_json.replace('"', '&quot;')
 
             rows.append(
                 f'<tr class="component-row" '
-                f'onclick="highlightComponent(this, {part_index}, \'{figma_bounds_attr}\', \'{app_bounds_attr}\')" '
-                f'data-figma-bounds=\'{figma_bounds_attr}\' data-app-bounds=\'{app_bounds_attr}\'>'
+                f'onclick="highlightComponent(this, {part_index})" '
+                f'data-figma-bounds="{figma_bounds_attr}" data-app-bounds="{app_bounds_attr}">'
             )
             rows.append(f'  <td><strong>{name}</strong></td>')
             rows.append(
