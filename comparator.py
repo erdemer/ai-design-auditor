@@ -4,9 +4,12 @@ import math
 import xml.etree.ElementTree as ET
 
 # --- 1. HATA/UYARI TOLERANS AYARLARI ---
-DIM_TOLERANCE_PCT = 0.15  # %15 Boyut sapmasına kadar OK
-POS_TOLERANCE_PCT = 0.12  # %12 Konum sapmasına kadar OK
-MIN_PIXEL_BUFFER = 16  # Küçük objeler için minimum 16px tolerans
+# --- 1. HATA/UYARI TOLERANS AYARLARI ---
+DIM_TOLERANCE_PCT = 0.30  # %30 Boyut sapmasına kadar OK (Increased from 20%)
+POS_TOLERANCE_PCT = 0.20  # %20 Konum sapmasına kadar OK (Increased from 15%)
+MIN_PIXEL_BUFFER = 32  # Küçük objeler için minimum 32px tolerans (Increased from 24px)
+COLOR_TOLERANCE = 60   # RGB Distance Tolerance (Increased from 50)
+
 
 # --- 2. EŞLEŞME (MATCHING) KURALLARI ---
 MAX_MATCH_DISTANCE = 400  # Bu mesafeden uzaktaysa eşleştirme
@@ -42,9 +45,29 @@ def _get_aspect_ratio(w, h):
     return w / float(h)
 
 
+def _hex_to_rgb(hex_color):
+    """Converts hex string to (r, g, b) tuple."""
+    hex_color = hex_color.lstrip('#')
+    if len(hex_color) == 3:
+        hex_color = ''.join([c*2 for c in hex_color])
+    if len(hex_color) != 6:
+        return (0, 0, 0)
+    return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+
+
+def _colors_are_similar(c1_hex, c2_hex, tolerance=COLOR_TOLERANCE):
+    """Calculates Euclidean distance between two hex colors."""
+    if not c1_hex or not c2_hex: return False
+    r1, g1, b1 = _hex_to_rgb(c1_hex)
+    r2, g2, b2 = _hex_to_rgb(c2_hex)
+    distance = math.sqrt((r1 - r2)**2 + (g1 - g2)**2 + (b1 - b2)**2)
+    return distance <= tolerance
+
+
+
 # --- TEST FONKSİYONLARI ---
 
-def _check_dimensions(figma_props, app_props, scale_factor, tolerance_unused, component_type="Container"):
+def _check_dimensions(figma_props, app_props, scale_x, scale_y, tolerance_unused, component_type="Container"):
     status = 'pass'
     diffs = []
 
@@ -57,7 +80,11 @@ def _check_dimensions(figma_props, app_props, scale_factor, tolerance_unused, co
         if prop not in figma_props['bounds'] or prop not in app_props['bounds']: continue
 
         f_val = figma_props['bounds'][prop]
-        expected = f_val * scale_factor # Keep as float for precision, or round later
+        
+        # Use appropriate scale
+        scale_factor = scale_x if prop == 'w' else scale_y
+        
+        expected = f_val * scale_factor 
         actual = app_props['bounds'][prop]
 
         is_ok = _is_within_tolerance(expected, actual, DIM_TOLERANCE_PCT)
@@ -67,7 +94,7 @@ def _check_dimensions(figma_props, app_props, scale_factor, tolerance_unused, co
 
         if not is_ok:
             status = 'fail'
-            diffs.append(f"{prop.upper()}: Beklenen≈{expected}px, Gelen={actual}px (Uyum: %{sim})")
+            diffs.append(f"{prop.upper()}: Beklenen≈{expected:.1f}px, Gelen={actual}px (Uyum: %{sim})")
 
     avg_score = int(sum(scores) / len(scores)) if scores else 0
     msg = f"OK (Uyum: %{avg_score})" if status == 'pass' else f"UYUMSUZ: {', '.join(diffs)}"
@@ -75,24 +102,33 @@ def _check_dimensions(figma_props, app_props, scale_factor, tolerance_unused, co
     return {"status": status, "message": msg}
 
 
-def _check_horizontal_paddings(figma_props, app_props, figma_w, app_w, scale, tol, ctype="Container"):
+def _check_horizontal_paddings(figma_props, app_props, figma_w, app_w, scale_x, tol, ctype="Container"):
     diffs, status = [], 'pass'
     if 'x' not in figma_props['bounds'] or 'x' not in app_props['bounds']:
         return {"status": "fail", "message": "X verisi yok"}
 
     # Sol
     f_x = figma_props['bounds']['x']
-    exp_x = round(f_x * scale)
+    exp_x = round(f_x * scale_x)
     act_x = app_props['bounds']['x']
 
     if not _is_within_tolerance(exp_x, act_x, POS_TOLERANCE_PCT):
         status = 'fail'
         diffs.append(f"Sol: {exp_x}px vs {act_x}px")
 
-    # Sağ (Text hariç)
-    if ctype != "Text" and 'w' in figma_props['bounds'] and 'w' in app_props['bounds']:
+    # Sağ (Text hariç) - Sadece Width OK ise kontrol et
+    # Eğer Width hatalıysa, Sağ padding doğal olarak hatalı çıkar. Çifte hata vermeyelim.
+    width_ok = True
+    if 'w' in figma_props['bounds'] and 'w' in app_props['bounds']:
+        f_w_val = figma_props['bounds']['w']
+        a_w_val = app_props['bounds']['w']
+        exp_w = f_w_val * scale_x
+        if not _is_within_tolerance(exp_w, a_w_val, DIM_TOLERANCE_PCT):
+            width_ok = False
+
+    if ctype != "Text" and width_ok and 'w' in figma_props['bounds'] and 'w' in app_props['bounds']:
         f_r = figma_w - (f_x + figma_props['bounds']['w'])
-        exp_r = round(f_r * scale)
+        exp_r = round(f_r * scale_x)
         act_r = app_w - (act_x + app_props['bounds']['w'])
 
         if not _is_within_tolerance(exp_r, act_r, POS_TOLERANCE_PCT):
@@ -103,7 +139,7 @@ def _check_horizontal_paddings(figma_props, app_props, figma_w, app_w, scale, to
     return {"status": "fail", "message": "Hizalama: " + ", ".join(diffs)}
 
 
-def _check_vertical_spacing(prev, curr, scale, tol):
+def _check_vertical_spacing(prev, curr, scale_y, tol):
     f_prev = prev['figma_analysis']['bounds']
     f_curr = curr['figma_analysis']['bounds']
     a_prev = prev['app_analysis']['bounds']
@@ -115,7 +151,7 @@ def _check_vertical_spacing(prev, curr, scale, tol):
     a_bottom = a_prev['y'] + a_prev['h']
     a_space = a_curr['y'] - a_bottom
 
-    exp_space = round(f_space * scale)
+    exp_space = round(f_space * scale_y)
     exp_space = max(0, exp_space)
     a_space = max(0, a_space)
 
@@ -129,20 +165,28 @@ def _check_styles(f_style, a_style):
     msgs = []
     status = 'pass'
 
-    # Metin
-    f_txt = str(f_style.get('content') or "").strip().lower()
-    a_txt = str(a_style.get('content') or "").strip().lower()
-    if f_txt and a_txt and f_txt != a_txt:
-        msgs.append(f"Metin: '{f_txt}' vs '{a_txt}'")
-        status = 'audit'
+    # Metin (Normalize & Fuzzy)
+    f_txt = str(f_style.get('content') or "").strip()
+    a_txt = str(a_style.get('content') or "").strip()
+    
+    # Remove non-alphanumeric and lowercase for comparison
+    f_clean = "".join(c for c in f_txt if c.isalnum()).lower()
+    a_clean = "".join(c for c in a_txt if c.isalnum()).lower()
 
-        # Renk
+    if f_clean and a_clean and f_clean != a_clean:
+        # Allow partial match if one contains the other
+        if f_clean not in a_clean and a_clean not in f_clean:
+            msgs.append(f"Metin: '{f_txt}' vs '{a_txt}'")
+            status = 'audit'
+
+    # Renk (Fuzzy Match)
     f_col = f_style.get('color')
     a_col = a_style.get('color')
     if f_col and a_col:
-        if f_col.strip('#').upper()[:6] != a_col.strip('#').upper()[:6]:
-            msgs.append(f"Renk: {f_col} vs {a_col}")
-            status = 'fail'
+        # Check if colors are similar enough
+        if not _colors_are_similar(f_col, a_col):
+             msgs.append(f"Renk: {f_col} vs {a_col}")
+             status = 'fail'
 
     return {"status": status, "messages": msgs, "figma": f_style, "app": a_style}
 
@@ -170,10 +214,140 @@ def _parse_adb_xml(xml_path):
 
 # --- ZEKİ EŞLEŞTİRME ALGORİTMASI (Filtreli) ---
 
+def _calculate_auto_scale(figma_list, app_list):
+    """
+    Calculates the scale factors (X, Y) based on the width/height ratio of high-confidence text matches.
+    Returns: (scale_x, scale_y)
+    """
+    ratios_x = []
+    ratios_y = []
+    
+    app_text_map = {}
+    for a_node in app_list:
+        txt = (a_node.get('text') or a_node.get('text_content') or "").strip().lower()
+        clean_txt = "".join(c for c in txt if c.isalnum())
+        if len(clean_txt) > 5: # Only long texts
+            if clean_txt not in app_text_map: app_text_map[clean_txt] = []
+            app_text_map[clean_txt].append(a_node)
+
+    for f_node in figma_list:
+        f_txt = (f_node.get('text_content') or "").strip().lower()
+        f_clean = "".join(c for c in f_txt if c.isalnum())
+        
+        if len(f_clean) > 5 and f_clean in app_text_map:
+            f_w = f_node['bounds']['w']
+            f_h = f_node['bounds']['h']
+            
+            if f_w < 10 or f_h < 10: continue
+            
+            for a_node in app_text_map[f_clean]:
+                a_w = a_node['bounds']['w']
+                a_h = a_node['bounds']['h']
+                
+                if a_w > 10: ratios_x.append(a_w / float(f_w))
+                if a_h > 10: ratios_y.append(a_h / float(f_h))
+
+    if not ratios_x or not ratios_y: return None
+    
+    # Return median ratios
+    ratios_x.sort()
+    ratios_y.sort()
+    
+    mid_x = len(ratios_x) // 2
+    mid_y = len(ratios_y) // 2
+    
+    return (ratios_x[mid_x], ratios_y[mid_y])
+
+
+def _calculate_global_offset(figma_list, app_list, scale, axis='y'):
+    """
+    Finds the median offset (X or Y) between high-confidence text matches.
+    """
+    offsets = []
+    
+    # Create a quick lookup for app text
+    app_text_map = {}
+    for a_node in app_list:
+        txt = (a_node.get('text') or a_node.get('text_content') or "").strip().lower()
+        clean_txt = "".join(c for c in txt if c.isalnum())
+        if len(clean_txt) > 3:
+            if clean_txt not in app_text_map: app_text_map[clean_txt] = []
+            app_text_map[clean_txt].append(a_node)
+
+    for f_node in figma_list:
+        f_txt = (f_node.get('text_content') or "").strip().lower()
+        f_clean = "".join(c for c in f_txt if c.isalnum())
+        
+        if len(f_clean) > 3 and f_clean in app_text_map:
+            # Found a text match!
+            
+            if axis == 'y':
+                f_val = (f_node['bounds']['y'] + f_node['bounds']['h'] / 2.0) * scale
+            else:
+                f_val = (f_node['bounds']['x'] + f_node['bounds']['w'] / 2.0) * scale
+            
+            # Check all candidates (duplicates possible)
+            for a_node in app_text_map[f_clean]:
+                if axis == 'y':
+                    a_val = a_node['bounds']['y'] + a_node['bounds']['h'] / 2.0
+                else:
+                    a_val = a_node['bounds']['x'] + a_node['bounds']['w'] / 2.0
+                
+                diff = a_val - f_val
+                offsets.append(diff)
+
+    if not offsets: return 0
+    
+    # Return median offset
+    offsets.sort()
+    mid = len(offsets) // 2
+    median = offsets[mid]
+    
+    # Only apply if significant (> 5px)
+    if abs(median) > 5:
+        return median
+    return 0
+
+
 def _find_matches(figma_list, app_list, scale):
+
     matched = []
     unmatched_f = []
     unmatched_a = app_list.copy()
+
+    # --- 0. AUTO-SCALE DETECTION ---
+    # Eğer verilen 'scale' parametresi hatalıysa (örn: farklı çözünürlükler),
+    # metin eşleşmelerinden gerçek ölçeği bulmaya çalış.
+    
+    scale_x = scale
+    scale_y = scale
+    
+    detected_scales = _calculate_auto_scale(figma_list, app_list)
+    if detected_scales:
+        det_x, det_y = detected_scales
+        if abs(det_x - scale) > 0.01 or abs(det_y - scale) > 0.01:
+            print(f"[Comparator] Auto-detected Scale: X={det_x:.3f}, Y={det_y:.3f} (vs provided {scale:.3f}). Using detected scales.")
+            scale_x = det_x
+            scale_y = det_y
+
+    # --- 1. GLOBAL OFFSET COMPENSATION (Y & X) ---
+    # Auto-crop farklılıklarından kaynaklanan kaymaları düzeltmek için
+    # metin eşleşmelerine bakarak global ofsetleri hesapla.
+    
+    global_y_offset = _calculate_global_offset(figma_list, app_list, scale_y, axis='y')
+    global_x_offset = _calculate_global_offset(figma_list, app_list, scale_x, axis='x')
+    
+    if global_y_offset != 0 or global_x_offset != 0:
+        print(f"[Comparator] Global Offset Detected: X={global_x_offset}px, Y={global_y_offset}px. Applying compensation...")
+        # App koordinatlarını düzelt (Kopyası üzerinde)
+        unmatched_a = []
+        for node in app_list:
+            new_node = node.copy()
+            new_node['bounds'] = node['bounds'].copy()
+            new_node['bounds']['y'] -= global_y_offset 
+            new_node['bounds']['x'] -= global_x_offset
+            unmatched_a.append(new_node)
+
 
     # --- GHOST CONTAINER FILTRESI (Relaxed) ---
     # Metin içermeyen 'Container'ları analizden çıkar, ancak boyutu çok küçükse.
@@ -202,8 +376,8 @@ def _find_matches(figma_list, app_list, scale):
     
     for f_comp in figma_sorted:
         f_bounds = f_comp['bounds']
-        f_center_x = (f_bounds['x'] + f_bounds['w'] / 2.0) * scale
-        f_center_y = (f_bounds['y'] + f_bounds['h'] / 2.0) * scale
+        f_center_x = (f_bounds['x'] + f_bounds['w'] / 2.0) * scale_x
+        f_center_y = (f_bounds['y'] + f_bounds['h'] / 2.0) * scale_y
         f_center_scaled = (f_center_x, f_center_y)
         
         f_text = (f_comp.get('text_content') or "").strip().lower()
@@ -264,8 +438,8 @@ def _find_matches(figma_list, app_list, scale):
     
     for f_comp in remaining_figma:
         f_bounds = f_comp['bounds']
-        f_center_x = (f_bounds['x'] + f_bounds['w'] / 2.0) * scale
-        f_center_y = (f_bounds['y'] + f_bounds['h'] / 2.0) * scale
+        f_center_x = (f_bounds['x'] + f_bounds['w'] / 2.0) * scale_x
+        f_center_y = (f_bounds['y'] + f_bounds['h'] / 2.0) * scale_y
         f_center_scaled = (f_center_x, f_center_y)
         f_ratio = _get_aspect_ratio(f_bounds['w'], f_bounds['h'])
         f_text = (f_comp.get('text_content') or "").strip().lower()
@@ -321,15 +495,15 @@ def _find_matches(figma_list, app_list, scale):
     all_unmatched_f = unmatched_f + final_unmatched_f
     
     print(f"[Debug] Matched: {len(matched)}, Unmatched Figma: {len(all_unmatched_f)}, Unmatched App: {len(unmatched_a)}")
-    return matched, all_unmatched_f, unmatched_a
+    return matched, all_unmatched_f, unmatched_a, scale_x, scale_y
 
 
-def _generate_results(matches, un_f, un_a, f_w, a_w, scale, tol):
+def _generate_results(matches, un_f, un_a, f_w, a_w, scale_x, scale_y, tol):
     res = {
         "matched_components": [],
         "unmatched_figma": un_f,
         "unmatched_app": un_a,
-        "scale_factor": scale
+        "scale_factor": scale_x # Just for display
     }
 
     summary = {"error_count": 0, "layout_success_count": 0, "warning_count": 0, "style_success_count": 0,
@@ -360,14 +534,14 @@ def _generate_results(matches, un_f, un_a, f_w, a_w, scale, tol):
             }
         }
 
-        dim = _check_dimensions(f_props, a_props, scale, tol, ctype)
+        dim = _check_dimensions(f_props, a_props, scale_x, scale_y, tol, ctype)
 
         spc = {"status": "n/a", "message": "—"}
         if i > 0:
             prev = res["matched_components"][-1]["raw_data"]
-            spc = _check_vertical_spacing(prev, {"figma_analysis": f_props, "app_analysis": a_props}, scale, tol)
+            spc = _check_vertical_spacing(prev, {"figma_analysis": f_props, "app_analysis": a_props}, scale_y, tol)
 
-        pad = _check_horizontal_paddings(f_props, a_props, f_w, a_w, scale, tol, ctype)
+        pad = _check_horizontal_paddings(f_props, a_props, f_w, a_w, scale_x, tol, ctype)
         sty = _check_styles(f_props['styles'], a_props['styles'])
 
         l_status = 'fail' if 'fail' in [dim['status'], spc['status'], pad['status']] else 'pass'
@@ -400,12 +574,12 @@ def compare_layouts(figma_json, app_xml_path, figma_width, app_width, tolerance_
     """XML Modu"""
     app_nodes = _parse_adb_xml(app_xml_path)
     scale = app_width / figma_width if figma_width > 0 else 1.0
-    matches, unf, una = _find_matches(figma_json or [], app_nodes, scale)
-    return _generate_results(matches, unf, una, figma_width, app_width, scale, tolerance_px)
+    matches, unf, una, sx, sy = _find_matches(figma_json or [], app_nodes, scale)
+    return _generate_results(matches, unf, una, figma_width, app_width, sx, sy, tolerance_px)
 
 
 def compare_layouts_ai(figma_json, app_json, figma_width, app_width, tolerance_px):
     """AI Modu"""
     scale = app_width / figma_width if figma_width > 0 else 1.0
-    matches, unf, una = _find_matches(figma_json or [], app_json or [], scale)
-    return _generate_results(matches, unf, una, figma_width, app_width, scale, tolerance_px)
+    matches, unf, una, sx, sy = _find_matches(figma_json or [], app_json or [], scale)
+    return _generate_results(matches, unf, una, figma_width, app_width, sx, sy, tolerance_px)

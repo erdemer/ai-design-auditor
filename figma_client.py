@@ -2,6 +2,7 @@ import requests
 import config
 import json
 import os
+import time
 
 class FigmaClient:
     def __init__(self):
@@ -10,6 +11,35 @@ class FigmaClient:
         self.headers = {
             "X-Figma-Token": self.access_token
         }
+
+    def _make_request(self, url, retries=3):
+        """
+        Helper method to make HTTP requests with exponential backoff for rate limits.
+        """
+        for i in range(retries):
+            try:
+                response = requests.get(url, headers=self.headers)
+                response.raise_for_status()
+                return response
+            except requests.exceptions.HTTPError as e:
+                if e.response.status_code == 429:
+                    if i < retries - 1:
+                        wait_time = (2 ** i)  # Exponential backoff: 1s, 2s, 4s
+                        print(f"[FigmaClient] Rate limit hit. Retrying in {wait_time}s...")
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        raise Exception("Figma API Rate Limit Exceeded. Please try again later.")
+                elif e.response.status_code == 403:
+                    raise Exception("Figma API Access Denied. Check your Token and File permissions.")
+                elif e.response.status_code == 404:
+                    raise Exception("Figma File or Node not found.")
+                else:
+                    raise Exception(f"Figma API Error: {str(e)}")
+            except Exception as e:
+                raise Exception(f"Figma Connection Error: {str(e)}")
+        return None
+
 
     def get_file_nodes(self, file_key, node_ids):
         """
@@ -23,20 +53,10 @@ class FigmaClient:
         url = f"{self.base_url}/files/{file_key}/nodes?ids={ids_str}"
         
         try:
-            response = requests.get(url, headers=self.headers)
-            response.raise_for_status()
+            response = self._make_request(url)
             return response.json()
-        except requests.exceptions.HTTPError as e:
-            if e.response.status_code == 429:
-                raise Exception("Figma API Rate Limit Exceeded. Please try again later.")
-            elif e.response.status_code == 403:
-                raise Exception("Figma API Access Denied. Check your Token and File permissions.")
-            elif e.response.status_code == 404:
-                raise Exception("Figma File or Node not found.")
-            else:
-                raise Exception(f"Figma API Error: {str(e)}")
         except Exception as e:
-            raise Exception(f"Figma Connection Error: {str(e)}")
+            raise e
 
     def get_image(self, file_key, node_id, scale=1.0):
         """
@@ -47,17 +67,14 @@ class FigmaClient:
 
         url = f"{self.base_url}/images/{file_key}?ids={node_id}&scale={scale}&format=png"
         try:
-            response = requests.get(url, headers=self.headers)
-            response.raise_for_status()
+            response = self._make_request(url)
             data = response.json()
             images = data.get("images", {})
             return images.get(node_id)
-        except requests.exceptions.HTTPError as e:
-            if e.response.status_code == 429:
-                raise Exception("Figma API Rate Limit Exceeded (Images).")
-            raise Exception(f"Figma Image Error: {str(e)}")
         except Exception as e:
-            raise Exception(f"Figma Image Connection Error: {str(e)}")
+            if "Rate Limit" in str(e):
+                raise Exception("Figma API Rate Limit Exceeded (Images).")
+            raise e
 
     def download_image(self, url, output_path):
         """Downloads the image from the URL to the specified path."""

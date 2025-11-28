@@ -176,11 +176,21 @@ def run_audit_process(
                 continue
             app_xml_path_for_analysis = app_xml_path
 
-            # Manuel modda, XML ile aynı isimde bir .png olduğunu varsay
-            app_ss_path_for_report = os.path.splitext(app_xml_path)[0] + ".png"
-            if not os.path.exists(app_ss_path_for_report):
-                print(f"UYARI: Rapor için '{app_ss_path_for_report}' görseli bulunamadı.")
-                app_ss_path_for_report = None  # Raporun resimsiz olmasına neden olacak
+            # Manuel modda, eğer dosya zaten bir resimse onu kullan
+            if app_xml_path.lower().endswith(('.png', '.jpg', '.jpeg')):
+                app_ss_path_for_report = app_xml_path
+            else:
+                # Değilse (örn XML ise), aynı isimde resim ara (.png, .jpg, .jpeg)
+                base_path = os.path.splitext(app_xml_path)[0]
+                for ext in ['.png', '.jpg', '.jpeg']:
+                    potential_path = base_path + ext
+                    if os.path.exists(potential_path):
+                        app_ss_path_for_report = potential_path
+                        break
+                
+                if not app_ss_path_for_report:
+                    print(f"UYARI: Rapor için görsel dosyası (png/jpg) bulunamadı: {base_path}.*")
+                    app_ss_path_for_report = None
 
         else:  # run_mode == "auto"
             if i == 0:

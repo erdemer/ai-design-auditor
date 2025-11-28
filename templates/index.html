@@ -600,7 +600,7 @@
                                     </div>
                                     <div class="rounded-lg border border-gray-200 bg-gray-100 shadow-inner h-[50vh] flex items-center justify-center bg-gray-50 overflow-hidden">
                                         <div class="relative">
-                                            <img src="/files/${part.image_pair.figma}" id="img-figma-${part.part_index}" class="max-w-full max-h-[50vh] w-auto h-auto block" onload="setupCanvas(this, 'canvas-figma-${part.part_index}')">
+                                            <img src="/files/${part.image_pair.figma}?t=${Date.now()}" id="img-figma-${part.part_index}" class="max-w-full max-h-[50vh] w-auto h-auto block" onload="setupCanvas(this, 'canvas-figma-${part.part_index}')">
                                             <canvas id="canvas-figma-${part.part_index}" class="absolute inset-0 z-10 cursor-crosshair" onmousemove="handleCanvasHover(event, '${part.part_index}', 'figma')" onmouseleave="hideTooltip()"></canvas>
                                         </div>
                                     </div>
@@ -612,7 +612,7 @@
                                     </div>
                                     <div class="rounded-lg border border-gray-200 bg-gray-100 shadow-inner h-[50vh] flex items-center justify-center bg-gray-50 overflow-hidden">
                                         <div class="relative">
-                                            <img src="/files/${part.image_pair.app}" id="img-app-${part.part_index}" class="max-w-full max-h-[50vh] w-auto h-auto block" onload="setupCanvas(this, 'canvas-app-${part.part_index}')">
+                                            <img src="/files/${part.image_pair.app}?t=${Date.now()}" id="img-app-${part.part_index}" class="max-w-full max-h-[50vh] w-auto h-auto block" onload="setupCanvas(this, 'canvas-app-${part.part_index}')">
                                             <canvas id="canvas-app-${part.part_index}" class="absolute inset-0 z-10 cursor-crosshair" onmousemove="handleCanvasHover(event, '${part.part_index}', 'app')" onmouseleave="hideTooltip()"></canvas>
                                         </div>
                                     </div>

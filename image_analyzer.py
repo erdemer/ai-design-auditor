@@ -13,7 +13,11 @@ import math
 try:
     genai.configure(api_key=config.GOOGLE_API_KEY)
     # Görsel analiz için en iyi model
-    vision_model = genai.GenerativeModel("gemini-2.5-flash")
+    # Temperature 0.0 for deterministic output
+    vision_model = genai.GenerativeModel(
+        "gemini-2.5-flash",
+        generation_config={"temperature": 0.0}
+    )
 except Exception as e:
     print(f"[AI] Model yüklenirken hata oluştu: {e}")
     vision_model = None
@@ -55,7 +59,6 @@ JSON ÇIKTI FORMATI:
     "estimated_backgroundColor": "#E30613"
   }
 ]
-Sadece saf JSON döndür. Markdown (```json) kullanma.
 Sadece saf JSON döndür. Markdown (```json) kullanma.
 """
 
@@ -258,6 +261,10 @@ def analyze_image(image_path: str, expected_components=None):
 
             for i in range(num_slices):
                 top = i * SLICE_HEIGHT
+                # Son parça değilse, overlap ekle (örn: 100px) ki kesilen bileşenler kaybolmasın
+                # Ancak bu duplicate yaratabilir, şimdilik basit tutalım.
+                # Deterministic olması için overlap'i şimdilik kapalı tutuyoruz, ama 
+                # temperature 0 ile zaten daha stabil olacak.
                 bottom = min(top + SLICE_HEIGHT, total_height)
 
                 # Son parça çok küçükse atla (Gürültü ve yarım bileşen riski)
