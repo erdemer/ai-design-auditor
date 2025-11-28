@@ -174,16 +174,18 @@ def _find_matches(figma_list, app_list, scale):
     unmatched_f = []
     unmatched_a = app_list.copy()
 
-    # --- GHOST CONTAINER FILTRESI ---
-    # Metin içermeyen 'Container'ları analizden çıkar.
-    # Bunlar genellikle arka plan, boşluk veya dekoratif kutulardır.
+    # --- GHOST CONTAINER FILTRESI (Relaxed) ---
+    # Metin içermeyen 'Container'ları analizden çıkar, ancak boyutu çok küçükse.
+    # Büyük containerlar (örn: kartlar, arka planlar) korunmalı.
     filtered_figma_list = []
     for f_comp in figma_list:
         has_text = bool(f_comp.get('text_content') and f_comp.get('text_content').strip())
         c_type = f_comp.get('type', 'Container')
-
-        if c_type == 'Container' and not has_text:
-            # Eşleşmeye sokma ama raporda "Görünmeyen" olarak kalsın
+        w = f_comp['bounds']['w']
+        h = f_comp['bounds']['h']
+        
+        # Çok küçük ve metinsiz ise atla (örn: 10x10 dekoratif)
+        if c_type == 'Container' and not has_text and (w < 20 or h < 20):
             unmatched_f.append(f_comp)
             continue
 
@@ -193,61 +195,113 @@ def _find_matches(figma_list, app_list, scale):
     # Y koordinatına göre sırala
     figma_sorted = sorted(filtered_figma_list, key=lambda c: c['bounds']['y'])
 
+    # --- PASS 1: HIGH CONFIDENCE MATCHING ---
+    # Kesin metin eşleşmesi veya çok yakın mesafe (<100px)
+    remaining_figma = []
+    
     for f_comp in figma_sorted:
         f_bounds = f_comp['bounds']
-
-        # Figma -> App Scale
         f_center_x = (f_bounds['x'] + f_bounds['w'] / 2.0) * scale
         f_center_y = (f_bounds['y'] + f_bounds['h'] / 2.0) * scale
         f_center_scaled = (f_center_x, f_center_y)
-
-        f_ratio = _get_aspect_ratio(f_bounds['w'], f_bounds['h'])
-
+        
+        f_text = (f_comp.get('text_content') or "").strip().lower()
+        
         best_cand = None
         best_score = 999999
-
+        
+        # Pass 1 Thresholds
+        PASS1_DIST = 200  # Increased from 100 to catch ~60px offsets
+        
         for a_node in unmatched_a:
             a_bounds = a_node['bounds']
             a_center = _get_center(a_bounds)
-
-            # A) Mesafe Kontrolü
             dist = _get_distance(f_center_scaled, a_center)
-            if dist > MAX_MATCH_DISTANCE: continue
-
-            # B) Şekil Kontrolü (Dikdörtgen vs Kare)
+            
+            a_text = (a_node.get('text') or a_node.get('text_content') or "").strip().lower()
+            
+            # Kural 1: Metin Birebir Aynıysa -> KESİN EŞLEŞME (Mesafe toleransı çok yüksek)
+            # Eğer metin yeterince uzunsa (>3 karakter) ve birebir aynıysa, muhtemelen doğru eşleşmedir.
+            # Layout kaymalarını tolere etmek için mesafeyi 2000px'e kadar açıyoruz.
+            if f_text and a_text and len(f_text) > 3 and f_text == a_text and dist < 2000:
+                best_cand = a_node
+                best_score = 0 # Mükemmel
+                break # Döngüden çık, bunu al
+            
+            # Kural 2: Çok yakınsa (<200px) ve şekil benziyorsa
+            f_ratio = _get_aspect_ratio(f_bounds['w'], f_bounds['h'])
             a_ratio = _get_aspect_ratio(a_bounds['w'], a_bounds['h'])
             ratio_diff = abs(f_ratio - a_ratio)
+            
+            if dist < PASS1_DIST and ratio_diff < 1.0:
+                score = dist + (ratio_diff * 100)
+                if score < best_score:
+                    best_score = score
+                    best_cand = a_node
+        
+        if best_cand:
+            matched.append((f_comp, best_cand))
+            unmatched_a.remove(best_cand)
+        else:
+            remaining_figma.append(f_comp)
 
+    # --- PASS 2: RELAXED MATCHING ---
+    # Kalanlar için daha geniş arama (Distance < 800px)
+    
+    final_unmatched_f = []
+    
+    for f_comp in remaining_figma:
+        f_bounds = f_comp['bounds']
+        f_center_x = (f_bounds['x'] + f_bounds['w'] / 2.0) * scale
+        f_center_y = (f_bounds['y'] + f_bounds['h'] / 2.0) * scale
+        f_center_scaled = (f_center_x, f_center_y)
+        f_ratio = _get_aspect_ratio(f_bounds['w'], f_bounds['h'])
+        f_text = (f_comp.get('text_content') or "").strip().lower()
+
+        best_cand = None
+        best_score = 999999
+        
+        # Relaxed Thresholds
+        PASS2_DIST = 1500 # Increased from 800 to catch large offsets
+        
+        for a_node in unmatched_a:
+            a_bounds = a_node['bounds']
+            a_center = _get_center(a_bounds)
+            dist = _get_distance(f_center_scaled, a_center)
+            
+            if dist > PASS2_DIST: continue
+            
+            a_ratio = _get_aspect_ratio(a_bounds['w'], a_bounds['h'])
+            ratio_diff = abs(f_ratio - a_ratio)
+            
             shape_penalty = 0
             if ratio_diff > ASPECT_RATIO_TOLERANCE:
-                shape_penalty = 500  # Ağır ceza
-
-            # C) Metin Bonusu
-            f_text = (f_comp.get('text_content') or "").strip().lower()
+                shape_penalty = 500
+            
             a_text = (a_node.get('text') or a_node.get('text_content') or "").strip().lower()
             text_bonus = 0
             if f_text and a_text:
-                if f_text == a_text:
-                    text_bonus = 250
-                elif f_text in a_text:
-                    text_bonus = 100
-
+                if f_text in a_text or a_text in f_text: # Partial match
+                    text_bonus = 150
+            
             score = dist + shape_penalty - text_bonus
-
+            
             if score < best_score:
                 best_score = score
                 best_cand = a_node
-
-        # Eşik Değeri
-        if best_cand and best_score < 300:
+        
+        if best_cand and best_score < 600: # Increased score threshold from 500
             matched.append((f_comp, best_cand))
             unmatched_a.remove(best_cand)
         else:
             print(f"[Match Fail] {f_comp.get('name')} - Best Score: {best_score}")
-            unmatched_f.append(f_comp)
+            final_unmatched_f.append(f_comp)
 
-    print(f"[Debug] Matched: {len(matched)}, Unmatched Figma: {len(unmatched_f)}, Unmatched App: {len(unmatched_a)}")
-    return matched, unmatched_f, unmatched_a
+    # Merge initial skipped with final unmatched
+    all_unmatched_f = unmatched_f + final_unmatched_f
+    
+    print(f"[Debug] Matched: {len(matched)}, Unmatched Figma: {len(all_unmatched_f)}, Unmatched App: {len(unmatched_a)}")
+    return matched, all_unmatched_f, unmatched_a
 
 
 def _generate_results(matches, un_f, un_a, f_w, a_w, scale, tol):

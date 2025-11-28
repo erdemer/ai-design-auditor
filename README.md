@@ -111,6 +111,7 @@ The easiest way to use the tool is via the modern Web Interface.
     *   **Side-by-Side Comparison:** View the Figma design and App implementation next to each other.
     *   **Interactive Highlighting:** Click on any component in the results table to see it highlighted on both images.
     *   **AI Analysis Mode:** Choose between XML-based (UIAutomator) or AI-based (Visual) analysis for the App screenshot.
+    *   **Auto-Crop:** Automatically detects and removes Status Bars and Navigation Bars for cleaner analysis.
 
 ## 🛠️ CLI Usage
 

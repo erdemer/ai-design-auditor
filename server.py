@@ -45,10 +45,10 @@ async def analyze(
     app_files: Optional[List[UploadFile]] = File(None),
     use_adb: bool = Form(False),
     app_analysis_mode: str = Form("xml"), # "xml" or "ai"
-    figma_crop_top: int = Form(0),
-    figma_crop_bottom: int = Form(0),
-    app_crop_top: int = Form(0),
-    app_crop_bottom: int = Form(0),
+    figma_crop_top: int = Form(-1),
+    figma_crop_bottom: int = Form(-1),
+    app_crop_top: int = Form(-1),
+    app_crop_bottom: int = Form(-1),
 ):
     # 1. Save Uploaded Files
     saved_figma_paths = []

@@ -13,7 +13,7 @@ import math
 try:
     genai.configure(api_key=config.GOOGLE_API_KEY)
     # Görsel analiz için en iyi model
-    vision_model = genai.GenerativeModel("gemini-2.5-pro")
+    vision_model = genai.GenerativeModel("gemini-2.5-flash")
 except Exception as e:
     print(f"[AI] Model yüklenirken hata oluştu: {e}")
     vision_model = None
@@ -220,3 +220,43 @@ def analyze_image(image_path: str):
     except Exception as e:
         print(f"[AI] Kritik Hata: {e}")
         return None
+
+
+def detect_system_bars(image_path: str):
+    """
+    Görüntüdeki Status Bar ve Navigation Bar yüksekliklerini AI ile tespit eder.
+    """
+    if not vision_model:
+        return {"status_bar_height": 0, "nav_bar_height": 0}
+
+    prompt = """
+    Analyze this mobile UI screenshot.
+    Detect the height (in pixels) of the system Status Bar (at the very top) and the system Navigation Bar/Home Indicator (at the very bottom).
+    
+    Return ONLY a JSON object with these keys:
+    {
+      "status_bar_height": int,
+      "nav_bar_height": int
+    }
+    
+    If a bar is not present or clearly visible, set its value to 0.
+    Do not include any markdown formatting, just the raw JSON.
+    """
+
+    try:
+        img = PIL.Image.open(image_path)
+        response = vision_model.generate_content([prompt, img])
+        
+        raw_text = getattr(response, "text", str(response))
+        json_str = _extract_json_from_response(raw_text)
+        
+        if json_str:
+            data = json.loads(json_str)
+            return {
+                "status_bar_height": int(data.get("status_bar_height", 0)),
+                "nav_bar_height": int(data.get("nav_bar_height", 0))
+            }
+    except Exception as e:
+        print(f"[AI] Bar tespiti hatası: {e}")
+    
+    return {"status_bar_height": 0, "nav_bar_height": 0}

@@ -201,7 +201,39 @@ def run_audit_process(
                 else:
                     print("[Oto-Mod] HATA: Ne ADB XML dump ne de yerel fallback XML bulundu. Bu parça için layout analizi yapılamayacak.")
 
-        # 2. Adım: Görüntüleri Kırp (Opsiyonel)
+        # 2. Adım: Görüntüleri Kırp (Opsiyonel veya Otomatik)
+        
+        # --- OTO-CROP MANTIĞI ---
+        # Eğer değerler -1 ise (Auto), AI ile tespit etmeye çalış
+        if figma_crop_top == -1 and figma_crop_bottom == -1:
+            print(f"[Auto-Crop] Figma parçası '{figma_part_path}' için bar tespiti yapılıyor...")
+            bars = image_analyzer.detect_system_bars(figma_part_path)
+            if bars['status_bar_height'] > 0 or bars['nav_bar_height'] > 0:
+                print(f"   -> Tespit edildi: Top={bars['status_bar_height']}px, Bottom={bars['nav_bar_height']}px")
+                figma_crop_top = bars['status_bar_height']
+                figma_crop_bottom = bars['nav_bar_height']
+            else:
+                # Tespit edilemezse 0 yap
+                figma_crop_top = 0
+                figma_crop_bottom = 0
+        elif figma_crop_top == -1: figma_crop_top = 0
+        elif figma_crop_bottom == -1: figma_crop_bottom = 0
+
+
+        if app_crop_top == -1 and app_crop_bottom == -1 and app_ss_path_for_report:
+            print(f"[Auto-Crop] App parçası '{app_ss_path_for_report}' için bar tespiti yapılıyor...")
+            bars = image_analyzer.detect_system_bars(app_ss_path_for_report)
+            if bars['status_bar_height'] > 0 or bars['nav_bar_height'] > 0:
+                print(f"   -> Tespit edildi: Top={bars['status_bar_height']}px, Bottom={bars['nav_bar_height']}px")
+                app_crop_top = bars['status_bar_height']
+                app_crop_bottom = bars['nav_bar_height']
+            else:
+                app_crop_top = 0
+                app_crop_bottom = 0
+        elif app_crop_top == -1: app_crop_top = 0
+        elif app_crop_bottom == -1: app_crop_bottom = 0
+        # ------------------------
+
         # SADECE AI'ye gidecek olan FIGMA görüntüsünü kırp
         figma_cropped_path = figma_part_path
         if figma_crop_top > 0 or figma_crop_bottom > 0:
