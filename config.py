@@ -7,11 +7,14 @@ load_dotenv()
 
 # API Anahtarını al
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+FIGMA_ACCESS_TOKEN = os.getenv("FIGMA_ACCESS_TOKEN")
+FIGMA_FILE_KEY = os.getenv("FIGMA_FILE_KEY")
 
 if not GOOGLE_API_KEY:
     print("HATA: GOOGLE_API_KEY bulunamadı.")
     print("Lütfen proje klasörünüze bir .env dosyası oluşturup içine 'GOOGLE_API_KEY=...' ekleyin.")
-    exit()
+    # exit() # Allow running if only Figma token is present? No, Vision is still needed for App.
+
 
 # Karşılaştırma için tolerans
 DEFAULT_TOLERANCE_PX = 18

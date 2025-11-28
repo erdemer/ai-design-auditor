@@ -10,6 +10,8 @@ from PIL import ImageChops
 import report_generator
 import argparse
 from pprint import pprint
+import figma_client
+
 
 
 def _crop_image(input_path, crop_top, crop_bottom, output_path):
@@ -60,51 +62,19 @@ def _images_are_different(img_path_1, img_path_2, diff_threshold=10):
         return False
 
 
-def main():
-    print("--- AI Design Auditor (v8.0 - XML vs AI-JSON) Başlatılıyor ---")
-
-    # 1. Girdi (Argüman) Kontrolü
-    parser = argparse.ArgumentParser(description="AI Tasarım Denetimi Aracı (V10 Hibrit Mod)")
-
-    parser.add_argument(
-        "--figma-parts",
-        nargs='+',
-        required=True,
-        help="Karşılaştırılacak Figma PNG parçalarının yolları (Sırayla, örn: part1.png)"
-    )
-    # --- GÜNCELLENMİŞ ARGÜMAN: Artık .xml dosyaları da olabilir ---
-    parser.add_argument(
-        "--app-parts",
-        nargs='+',
-        required=False,
-        help="(Opsiyonel) Manuel olarak alınan App SS (.png) VE XML (.xml) parçaları. Eğer verilmezse, ADB kullanılır."
-    )
-
-    parser.add_argument(
-        "--app-analysis-mode",
-        choices=["xml", "ai"],
-        default=config.APP_ANALYSIS_MODE,
-        help="App tarafını XML (uiautomator) veya AI (görüntü analizi) ile çözümle."
-    )
-
-    parser.add_argument("--figma-crop-top", type=int, default=0, help="Figma PNG'lerinden üstten kırpılacak piksel.")
-    parser.add_argument("--figma-crop-bottom", type=int, default=0, help="Figma PNG'lerinden alttan kırpılacak piksel.")
-    parser.add_argument("--app-crop-top", type=int, default=0,
-                        help="TÜM App SS'lerinden üstten kırpılacak piksel (örn: status bar).")
-    parser.add_argument("--app-crop-bottom", type=int, default=0,
-                        help="TÜM App SS'lerinden alttan kırpılacak piksel (örn: nav bar).")
-
-    args = parser.parse_args()
 
 def run_audit_process(
-    figma_parts,
+    figma_parts=None,
     app_parts=None,
     app_analysis_mode=config.APP_ANALYSIS_MODE,
     figma_crop_top=0,
     figma_crop_bottom=0,
     app_crop_top=0,
-    app_crop_bottom=0
+    app_crop_bottom=0,
+    figma_file_key=None,
+    figma_node_ids=None
 ):
+
     """
     Core audit logic extracted for external use (e.g., Web GUI).
     """
@@ -123,7 +93,22 @@ def run_audit_process(
         "all_warnings": []
     }
 
-    num_parts = len(figma_parts)
+    # --- FIGMA SOURCE DETERMINATION ---
+    using_figma_api = False
+    figma_client_instance = None
+    
+    if figma_file_key and figma_node_ids:
+        using_figma_api = True
+        figma_client_instance = figma_client.FigmaClient()
+        num_parts = len(figma_node_ids)
+        print(f"[Mod] Figma API Modu aktif. {num_parts} parça (Node ID) işlenecek.")
+    elif figma_parts:
+        num_parts = len(figma_parts)
+        print(f"[Mod] Figma PNG Modu aktif. {num_parts} parça (PNG) işlenecek.")
+    else:
+        print("HATA: Ne Figma PNG'leri ne de Figma API bilgileri sağlandı.")
+        return final_report
+
     last_successful_ss_path = None  # Sadece 'scroll'u algılamak için
 
     if run_mode == "auto":
@@ -141,12 +126,44 @@ def run_audit_process(
                 final_report["error"] = "ADB ve yerel ekran görüntüsü alınamadı."
                 return final_report
 
-    for i, figma_part_path in enumerate(figma_parts):
+    # Loop range depends on source
+    loop_range = figma_node_ids if using_figma_api else figma_parts
+    
+    for i, item in enumerate(loop_range):
         part_index = i
         print(f"\n--- Parça {part_index} işleniyor ---")
-        if not os.path.exists(figma_part_path):
-            print(f"HATA: Figma parçası '{figma_part_path}' bulunamadı. Atlanıyor.")
-            continue
+        
+        figma_part_path = None
+        figma_data_json = None
+        
+        if using_figma_api:
+            node_id = item
+            print(f"[Figma API] Node {node_id} verisi çekiliyor...")
+            
+            # 1. Get Metadata (Ground Truth)
+            # We fetch ALL nodes at once usually, but here we do per-part for simplicity in loop
+            # Optimization: Fetch all at start? For now, keep it simple.
+            node_data = figma_client_instance.get_file_nodes(figma_file_key, [node_id])
+            if not node_data:
+                print(f"HATA: Node {node_id} verisi çekilemedi.")
+                continue
+                
+            figma_data_json = figma_client_instance.parse_figma_response(node_data)
+            
+            # 2. Get Image (Reference)
+            img_url = figma_client_instance.get_image(figma_file_key, node_id)
+            if img_url:
+                figma_part_path = f"figma_api_node_{node_id.replace(':', '_')}.png"
+                figma_client_instance.download_image(img_url, figma_part_path)
+                print(f"[Figma API] Referans görsel indirildi: {figma_part_path}")
+            else:
+                print("UYARI: Referans görsel indirilemedi.")
+                
+        else:
+            figma_part_path = item
+            if not os.path.exists(figma_part_path):
+                print(f"HATA: Figma parçası '{figma_part_path}' bulunamadı. Atlanıyor.")
+                continue
 
         app_xml_path_for_analysis = None
         app_ss_path_for_report = None
@@ -256,12 +273,15 @@ def run_audit_process(
             print("HATA: Gerekli Figma veya App verisi yok. Bu parça atlanıyor.")
             continue
 
-        # 3. Adım: AI Analizi (SADECE FIGMA)
-        figma_data_json = image_analyzer.analyze_image(figma_cropped_path)
-
-        if not figma_data_json:
-            print("HATA: AI Figma analizi başarısız. Bu parça atlanıyor.")
-            continue
+        # 3. Adım: AI Analizi (SADECE FIGMA - Eğer API kullanılmıyorsa)
+        if not using_figma_api:
+            figma_data_json = image_analyzer.analyze_image(figma_cropped_path)
+    
+            if not figma_data_json:
+                print("HATA: AI Figma analizi başarısız. Bu parça atlanıyor.")
+                continue
+        else:
+            print(f"[Figma API] {len(figma_data_json)} bileşen (Ground Truth) kullanılıyor.")
 
         # 4. Adım: En-boy oranlarına göre scale factor hesapla
         try:
@@ -276,11 +296,21 @@ def run_audit_process(
             continue
 
         if app_analysis_mode == "ai":
-            if not app_cropped_path_for_report:
-                print("UYARI: App için kırpılmış ekran görüntüsü bulunamadı, XML moduna düşülüyor.")
+            # --- HYBRID MODE LOGIC ---
+            expected_components_for_ai = None
+            if using_figma_api and figma_data_json:
+                 expected_components_for_ai = figma_data_json
+                 print(f"   [INFO] Hybrid Mode: {len(figma_data_json)} Figma bileşeni AI'ya rehberlik edecek.")
+            
+            app_data_json = image_analyzer.analyze_image(app_cropped_path_for_report, expected_components=expected_components_for_ai)
+            
+            if not app_data_json:
+                print("UYARI: AI App analizi başarısız, XML moduna düşülüyor.")
                 if not app_xml_path_for_analysis:
                     print("HATA: Ne App SS ne de XML mevcut, bu parça atlanıyor.")
                     continue
+                
+                # Fallback to XML comparison
                 results_part = comparator.compare_layouts(
                     figma_data_json,
                     app_xml_path_for_analysis,
@@ -289,35 +319,21 @@ def run_audit_process(
                     config.DEFAULT_TOLERANCE_PX
                 )
             else:
-                app_data_json = image_analyzer.analyze_image(app_cropped_path_for_report)
-                if not app_data_json:
-                    print("UYARI: AI App analizi başarısız, XML moduna düşülüyor.")
-                    if not app_xml_path_for_analysis:
-                        print("HATA: App XML de yok, bu parça atlanıyor.")
-                        continue
-                    results_part = comparator.compare_layouts(
-                        figma_data_json,
-                        app_xml_path_for_analysis,
-                        figma_width,
-                        app_width,
-                        config.DEFAULT_TOLERANCE_PX
-                    )
-                else:
-                    # --- DEBUG: JSON'ları kaydet ---
-                    import json
-                    with open(f"debug_figma_part_{part_index}.json", "w") as f:
-                        json.dump(figma_data_json, f, indent=2)
-                    with open(f"debug_app_part_{part_index}.json", "w") as f:
-                        json.dump(app_data_json, f, indent=2)
-                    print(f"[Debug] JSON verileri 'debug_figma_part_{part_index}.json' ve 'debug_app_part_{part_index}.json' dosyalarına kaydedildi.")
+                # --- DEBUG: JSON'ları kaydet ---
+                import json
+                with open(f"debug_figma_part_{part_index}.json", "w") as f:
+                    json.dump(figma_data_json, f, indent=2)
+                with open(f"debug_app_part_{part_index}.json", "w") as f:
+                    json.dump(app_data_json, f, indent=2)
+                print(f"[Debug] JSON verileri 'debug_figma_part_{part_index}.json' ve 'debug_app_part_{part_index}.json' dosyalarına kaydedildi.")
 
-                    results_part = comparator.compare_layouts_ai(
-                        figma_data_json,
-                        app_data_json,
-                        figma_width,
-                        app_width,
-                        config.DEFAULT_TOLERANCE_PX
-                    )
+                results_part = comparator.compare_layouts_ai(
+                    figma_data_json,
+                    app_data_json,
+                    figma_width,
+                    app_width,
+                    config.DEFAULT_TOLERANCE_PX
+                )
         else:
             print(f"[Debug] XML Modu: compare_layouts çağrılıyor... XML: {app_xml_path_for_analysis}")
             results_part = comparator.compare_layouts(
@@ -379,9 +395,14 @@ def main():
     parser.add_argument(
         "--figma-parts",
         nargs='+',
-        required=True,
+        required=False,
         help="Karşılaştırılacak Figma PNG parçalarının yolları (Sırayla, örn: part1.png)"
     )
+
+    # --- NEW ARGUMENTS FOR FIGMA API ---
+    parser.add_argument("--figma-file-key", help="Figma File Key (URL'den)")
+    parser.add_argument("--figma-node-ids", nargs='+', help="Figma Node ID'leri (örn: 1:2 10:5)")
+
     # --- GÜNCELLENMİŞ ARGÜMAN: Artık .xml dosyaları da olabilir ---
     parser.add_argument(
         "--app-parts",
@@ -413,7 +434,9 @@ def main():
         figma_crop_top=args.figma_crop_top,
         figma_crop_bottom=args.figma_crop_bottom,
         app_crop_top=args.app_crop_top,
-        app_crop_bottom=args.app_crop_bottom
+        app_crop_bottom=args.app_crop_bottom,
+        figma_file_key=args.figma_file_key,
+        figma_node_ids=args.figma_node_ids
     )
 
     report_generator.create_html_report(final_report)

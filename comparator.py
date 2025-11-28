@@ -57,10 +57,11 @@ def _check_dimensions(figma_props, app_props, scale_factor, tolerance_unused, co
         if prop not in figma_props['bounds'] or prop not in app_props['bounds']: continue
 
         f_val = figma_props['bounds'][prop]
-        expected = round(f_val * scale_factor)
+        expected = f_val * scale_factor # Keep as float for precision, or round later
         actual = app_props['bounds'][prop]
 
         is_ok = _is_within_tolerance(expected, actual, DIM_TOLERANCE_PCT)
+
         sim = _get_similarity_score(expected, actual)
         scores.append(sim)
 
@@ -196,7 +197,7 @@ def _find_matches(figma_list, app_list, scale):
     figma_sorted = sorted(filtered_figma_list, key=lambda c: c['bounds']['y'])
 
     # --- PASS 1: HIGH CONFIDENCE MATCHING ---
-    # Kesin metin eşleşmesi veya çok yakın mesafe (<100px)
+    # Kesin metin eşleşmesi veya çok yakın mesafe
     remaining_figma = []
     
     for f_comp in figma_sorted:
@@ -206,12 +207,14 @@ def _find_matches(figma_list, app_list, scale):
         f_center_scaled = (f_center_x, f_center_y)
         
         f_text = (f_comp.get('text_content') or "").strip().lower()
+        # Remove non-alphanumeric for cleaner comparison
+        f_text_clean = "".join(c for c in f_text if c.isalnum())
         
         best_cand = None
         best_score = 999999
         
         # Pass 1 Thresholds
-        PASS1_DIST = 200  # Increased from 100 to catch ~60px offsets
+        PASS1_DIST = 300  # Increased to catch ~60-100px offsets
         
         for a_node in unmatched_a:
             a_bounds = a_node['bounds']
@@ -219,21 +222,30 @@ def _find_matches(figma_list, app_list, scale):
             dist = _get_distance(f_center_scaled, a_center)
             
             a_text = (a_node.get('text') or a_node.get('text_content') or "").strip().lower()
+            a_text_clean = "".join(c for c in a_text if c.isalnum())
             
-            # Kural 1: Metin Birebir Aynıysa -> KESİN EŞLEŞME (Mesafe toleransı çok yüksek)
-            # Eğer metin yeterince uzunsa (>3 karakter) ve birebir aynıysa, muhtemelen doğru eşleşmedir.
-            # Layout kaymalarını tolere etmek için mesafeyi 2000px'e kadar açıyoruz.
-            if f_text and a_text and len(f_text) > 3 and f_text == a_text and dist < 2000:
+            # Kural 1: Metin Birebir Aynıysa (veya çok benzerse) -> KESİN EŞLEŞME
+            # Layout kaymalarını tolere etmek için mesafeyi çok açıyoruz.
+            is_text_match = False
+            if f_text_clean and a_text_clean and len(f_text_clean) > 2:
+                 if f_text_clean == a_text_clean:
+                     is_text_match = True
+                 elif f_text_clean in a_text_clean or a_text_clean in f_text_clean:
+                     # Partial match check: if one is substring of other and length diff isn't huge
+                     if abs(len(f_text_clean) - len(a_text_clean)) < 5:
+                         is_text_match = True
+            
+            if is_text_match and dist < 2500: # Huge distance tolerance for text matches
                 best_cand = a_node
-                best_score = 0 # Mükemmel
-                break # Döngüden çık, bunu al
+                best_score = 0 
+                break 
             
-            # Kural 2: Çok yakınsa (<200px) ve şekil benziyorsa
+            # Kural 2: Çok yakınsa ve şekil benziyorsa
             f_ratio = _get_aspect_ratio(f_bounds['w'], f_bounds['h'])
             a_ratio = _get_aspect_ratio(a_bounds['w'], a_bounds['h'])
             ratio_diff = abs(f_ratio - a_ratio)
             
-            if dist < PASS1_DIST and ratio_diff < 1.0:
+            if dist < PASS1_DIST and ratio_diff < 1.5:
                 score = dist + (ratio_diff * 100)
                 if score < best_score:
                     best_score = score
@@ -262,7 +274,7 @@ def _find_matches(figma_list, app_list, scale):
         best_score = 999999
         
         # Relaxed Thresholds
-        PASS2_DIST = 1500 # Increased from 800 to catch large offsets
+        PASS2_DIST = 2000 # Increased to catch even larger offsets
         
         for a_node in unmatched_a:
             a_bounds = a_node['bounds']
@@ -276,21 +288,29 @@ def _find_matches(figma_list, app_list, scale):
             
             shape_penalty = 0
             if ratio_diff > ASPECT_RATIO_TOLERANCE:
-                shape_penalty = 500
+                shape_penalty = 800 # Increased penalty
             
             a_text = (a_node.get('text') or a_node.get('text_content') or "").strip().lower()
+            a_text_clean = "".join(c for c in a_text if c.isalnum())
+            f_text_clean = "".join(c for c in f_text if c.isalnum())
+
             text_bonus = 0
-            if f_text and a_text:
-                if f_text in a_text or a_text in f_text: # Partial match
-                    text_bonus = 150
+            if f_text_clean and a_text_clean:
+                if f_text_clean in a_text_clean or a_text_clean in f_text_clean: 
+                    text_bonus = 300 # Increased bonus
             
-            score = dist + shape_penalty - text_bonus
+            # Type bonus
+            type_bonus = 0
+            if f_comp.get('type') == a_node.get('type'):
+                type_bonus = 100
+
+            score = dist + shape_penalty - text_bonus - type_bonus
             
             if score < best_score:
                 best_score = score
                 best_cand = a_node
         
-        if best_cand and best_score < 600: # Increased score threshold from 500
+        if best_cand and best_score < 1000: # Increased score threshold significantly
             matched.append((f_comp, best_cand))
             unmatched_a.remove(best_cand)
         else:

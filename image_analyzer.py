@@ -56,7 +56,39 @@ JSON ÇIKTI FORMATI:
   }
 ]
 Sadece saf JSON döndür. Markdown (```json) kullanma.
+Sadece saf JSON döndür. Markdown (```json) kullanma.
 """
+
+# --- CONTEXT AWARE PROMPT (Hybrid Mode) ---
+CONTEXT_AWARE_PROMPT_TEMPLATE = """
+Sen uzman bir UI Test Otomasyon mühendisisin. Görevin, sana verilen "BEKLENEN BİLEŞENLER LİSTESİ"ni (Figma'dan gelen veriler) kullanarak, bu mobil uygulama ekran görüntüsündeki karşılıklarını doğrulamak ve tespit etmektir.
+
+GİRDİ:
+1. Ekran Görüntüsü (Görsel)
+2. Beklenen Bileşenler Listesi (Aşağıda)
+
+BEKLENEN BİLEŞENLER:
+{component_list_str}
+
+GÖREVİN:
+1. Listedeki her bir bileşeni görselde ara.
+2. Eğer görselde varsa, görseldeki GERÇEK KONUMUNU (bounds) ve TİPİNİ işaretle.
+3. Eğer listede olmayan ama görselde belirgin olan başka önemli bileşenler varsa, onları da ekle.
+4. İsimlendirmede, eğer eşleşme bulursan listedeki "name"i kullanmaya çalış.
+
+JSON ÇIKTI FORMATI (Aynı):
+[
+  {{
+    "name": "kaydet_butonu",
+    "type": "Button",
+    "bounds": {{ "x": 0, "y": 0, "w": 100, "h": 50 }},
+    "text_content": "Kaydet", 
+    "estimated_color": "#FFFFFF"
+  }}
+]
+Sadece saf JSON döndür.
+"""
+
 
 
 def _extract_json_from_response(text: str):
@@ -134,11 +166,37 @@ def _save_debug_image(original_image_path, json_data):
         print(f"[DEBUG] Resim çizme hatası: {e}")
 
 
-def _analyze_single_slice(pil_image, offset_y, part_no):
+def _analyze_single_slice(pil_image, offset_y, part_no, expected_components=None):
     """Tek bir görüntü dilimini analiz eder."""
     try:
         print(f"   -> [AI] Parça {part_no} analiz ediliyor (Offset: {offset_y})...")
-        response = vision_model.generate_content([SYSTEM_PROMPT, pil_image])
+        
+        prompt_to_use = SYSTEM_PROMPT
+        if expected_components:
+            # Format expected components for this slice (simple heuristic: include all or filter by y)
+            # For simplicity, we pass a summary of all components to give context
+            # Or better: filter components that are likely in this slice range?
+            # Let's pass a simplified list of names/types/texts to avoid token limit issues
+            
+            comp_strs = []
+            for c in expected_components:
+                # Optional: Filter by Y coordinate if we trust Figma Y enough
+                # if c['bounds']['y'] ...
+                
+                c_name = c.get('name', 'Unknown')
+                c_type = c.get('type', 'Unknown')
+                c_text = c.get('text_content', '')
+                comp_strs.append(f"- [{c_type}] '{c_name}' (Text: '{c_text}')")
+            
+            # Limit to top 50 to avoid context window issues if list is huge
+            if len(comp_strs) > 50:
+                comp_strs = comp_strs[:50] + ["... ve diğerleri"]
+                
+            component_list_str = "\n".join(comp_strs)
+            prompt_to_use = CONTEXT_AWARE_PROMPT_TEMPLATE.format(component_list_str=component_list_str)
+            print(f"   -> [AI] Hybrid Mode: {len(comp_strs)} beklenen bileşen ile prompt oluşturuldu.")
+
+        response = vision_model.generate_content([prompt_to_use, pil_image])
 
         raw_text = getattr(response, "text", str(response))
         json_str = _extract_json_from_response(raw_text)
@@ -177,8 +235,8 @@ def _analyze_single_slice(pil_image, offset_y, part_no):
         return []
 
 
-def analyze_image(image_path: str):
-    """Ana analiz fonksiyonu."""
+def analyze_image(image_path: str, expected_components=None):
+    """Ana analiz fonksiyonu. expected_components (Figma Data) varsa Hybrid modda çalışır."""
     if not vision_model:
         print("[AI] Model yüklü değil.")
         return None
@@ -192,7 +250,7 @@ def analyze_image(image_path: str):
         # Resim kısaysa tek seferde işle
         if total_height <= SLICE_HEIGHT:
             print("[AI] Tek parça analiz ediliyor...")
-            final_json = _analyze_single_slice(full_img, 0, 1)
+            final_json = _analyze_single_slice(full_img, 0, 1, expected_components)
         else:
             # Resim uzunsa parçala
             num_slices = math.ceil(total_height / SLICE_HEIGHT)
@@ -207,7 +265,7 @@ def analyze_image(image_path: str):
                     continue
 
                 slice_img = full_img.crop((0, top, width, bottom))
-                slice_data = _analyze_single_slice(slice_img, top, i + 1)
+                slice_data = _analyze_single_slice(slice_img, top, i + 1, expected_components)
                 final_json.extend(slice_data)
 
         print(f"[AI] Analiz bitti. Toplam {len(final_json)} bileşen bulundu.")
@@ -217,9 +275,18 @@ def analyze_image(image_path: str):
 
         return final_json
 
+        return final_json
+
     except Exception as e:
-        print(f"[AI] Kritik Hata: {e}")
-        return None
+        # Check for ResourceExhausted (Quota Limit)
+        # Since we might not have the exact class imported, check string
+        error_str = str(e)
+        if "429" in error_str or "ResourceExhausted" in error_str or "Quota exceeded" in error_str:
+            raise Exception("Gemini AI Quota Exceeded. Please wait a minute or check your billing.")
+        elif "403" in error_str:
+            raise Exception("Gemini API Permission Denied. Check your API Key.")
+        else:
+            raise Exception(f"AI Analysis Error: {error_str}")
 
 
 def detect_system_bars(image_path: str):

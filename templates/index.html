@@ -121,10 +121,19 @@
                     <h2 class="text-xl font-semibold flex items-center gap-2 text-gray-800">
                         <i class="fab fa-figma text-gray-900"></i> Figma Designs
                     </h2>
-                    <span
-                        class="text-xs text-red-600 bg-red-50 px-2 py-1 rounded border border-red-100 font-medium">Required</span>
+                    <!-- Toggle -->
+                    <div class="flex bg-gray-100 rounded-lg p-1 border border-gray-200">
+                        <button id="btn-figma-upload"
+                            class="px-3 py-1 rounded-md text-sm font-medium bg-white text-gray-900 shadow-sm transition-all"
+                            onclick="setFigmaMode('upload')">Upload</button>
+                        <button id="btn-figma-link"
+                            class="px-3 py-1 rounded-md text-sm font-medium text-gray-500 hover:text-gray-900 transition-all"
+                            onclick="setFigmaMode('link')">Link</button>
+                    </div>
                 </div>
-                <div id="figma-drop"
+
+                <!-- Upload Mode -->
+                <div id="figma-upload-area"
                     class="drop-zone border-2 border-dashed border-gray-300 rounded-xl p-8 text-center cursor-pointer hover:border-red-500 h-64 flex flex-col items-center justify-center relative bg-gray-50 hover:bg-red-50 transition-colors">
                     <input type="file" id="figma-input" multiple accept="image/*"
                         class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20">
@@ -139,6 +148,26 @@
 
                     <img id="figma-preview"
                         class="hidden absolute inset-0 w-full h-full object-contain p-4 z-10 rounded-xl" />
+                </div>
+
+                <!-- Link Mode -->
+                <div id="figma-link-area"
+                    class="hidden h-64 flex flex-col items-center justify-center bg-gray-50 rounded-xl border border-gray-200 p-6">
+                    <div class="w-full max-w-md">
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Figma Node Link</label>
+                        <div class="relative">
+                            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                <i class="fas fa-link text-gray-400"></i>
+                            </div>
+                            <input type="text" id="figma-link-input"
+                                placeholder="https://www.figma.com/design/...?node-id=..."
+                                class="block w-full pl-10 pr-3 py-3 border border-gray-300 rounded-lg focus:ring-red-500 focus:border-red-500 sm:text-sm">
+                        </div>
+                        <p class="mt-2 text-xs text-gray-500">
+                            Copy the link to a specific Frame or Node in Figma. Ensure the API Token is set in the
+                            backend.
+                        </p>
+                    </div>
                 </div>
             </div>
 
@@ -304,6 +333,7 @@
 
     <script>
         let currentMode = 'upload';
+        let currentFigmaMode = 'upload';
 
         // Check ADB Status on Load
         async function checkADB() {
@@ -352,6 +382,32 @@
             }
         }
 
+        function setFigmaMode(mode) {
+            currentFigmaMode = mode;
+            const btnUpload = document.getElementById('btn-figma-upload');
+            const btnLink = document.getElementById('btn-figma-link');
+            const areaUpload = document.getElementById('figma-upload-area');
+            const areaLink = document.getElementById('figma-link-area');
+
+            if (mode === 'upload') {
+                btnUpload.classList.add('bg-white', 'text-gray-900', 'shadow-sm');
+                btnUpload.classList.remove('text-gray-500', 'hover:text-gray-900');
+                btnLink.classList.remove('bg-white', 'text-gray-900', 'shadow-sm');
+                btnLink.classList.add('text-gray-500', 'hover:text-gray-900');
+
+                areaUpload.classList.remove('hidden');
+                areaLink.classList.add('hidden');
+            } else {
+                btnLink.classList.add('bg-white', 'text-gray-900', 'shadow-sm');
+                btnLink.classList.remove('text-gray-500', 'hover:text-gray-900');
+                btnUpload.classList.remove('bg-white', 'text-gray-900', 'shadow-sm');
+                btnUpload.classList.add('text-gray-500', 'hover:text-gray-900');
+
+                areaUpload.classList.add('hidden');
+                areaLink.classList.remove('hidden');
+            }
+        }
+
         // File Input Handling
         function handleFileSelect(inputId, listId, previewId, placeholderId) {
             const input = document.getElementById(inputId);
@@ -384,8 +440,7 @@
                     // List files
                     files.forEach(f => {
                         const tag = document.createElement('span');
-                        tag.className = 'px-2 py-1 bg-gray-100 rounded text-xs text-gray-700 border border-gray-200 z-30 relative'; // z-30 to be above input? No, input needs to be top.
-                        // Actually, if input is top, we can't click tags. But we don't need to click tags.
+                        tag.className = 'px-2 py-1 bg-gray-100 rounded text-xs text-gray-700 border border-gray-200 z-30 relative';
                         tag.textContent = f.name;
                         list.appendChild(tag);
                     });
@@ -429,8 +484,14 @@
                 appCropBottom = parseInt(document.getElementById('app-crop-bottom').value) || 0;
             }
 
-            if (!figmaInput.files.length) {
+            if (currentFigmaMode === 'upload' && !figmaInput.files.length) {
                 alert("Please upload at least one Figma design.");
+                return;
+            }
+
+            const figmaLinkVal = document.getElementById('figma-link-input').value;
+            if (currentFigmaMode === 'link' && !figmaLinkVal) {
+                alert("Please enter a valid Figma Link.");
                 return;
             }
 
@@ -445,9 +506,13 @@
 
             const formData = new FormData();
 
-            // Add Figma Files
-            for (let i = 0; i < figmaInput.files.length; i++) {
-                formData.append('figma_files', figmaInput.files[i]);
+            // Add Figma Files or Link
+            if (currentFigmaMode === 'upload') {
+                for (let i = 0; i < figmaInput.files.length; i++) {
+                    formData.append('figma_files', figmaInput.files[i]);
+                }
+            } else {
+                formData.append('figma_link', figmaLinkVal);
             }
 
             // Add App Files (if not ADB)
@@ -474,13 +539,16 @@
 
                 const result = await response.json();
 
-                if (result.error) {
-                    alert("Error: " + result.error);
-                } else {
-                    renderResults(result);
+                if (!response.ok || result.error) {
+                    showError(result.error || "Unknown server error.");
+                    document.getElementById('loading-overlay').classList.add('hidden');
+                    return;
                 }
-            } catch (e) {
-                alert("Network Error: " + e.message);
+
+                renderResults(result);
+            } catch (error) {
+                console.error('Error:', error);
+                showError("Network or Server Error: " + error.message);
             } finally {
                 document.getElementById('loading-overlay').classList.add('hidden');
             }
@@ -521,35 +589,41 @@
                 content.className = 'p-6';
 
                 const gridHtml = `
-                    <div class="space-y-8">
-                        <!-- Top Row: Images Side-by-Side -->
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <!-- Figma Image -->
-                            <div class="relative group">
-                                <div class="text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
-                                    <i class="fab fa-figma text-gray-500"></i> Figma Design
+                    <div class="flex flex-col lg:flex-row gap-8">
+                        <!-- Left Column: Sticky Images -->
+                        <div class="lg:w-1/2">
+                            <div class="sticky top-24 space-y-6">
+                                <!-- Figma Image -->
+                                <div class="relative group">
+                                    <div class="text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
+                                        <i class="fab fa-figma text-gray-500"></i> Figma Design
+                                    </div>
+                                    <div class="rounded-lg border border-gray-200 bg-gray-100 shadow-inner h-[50vh] flex items-center justify-center bg-gray-50 overflow-hidden">
+                                        <div class="relative">
+                                            <img src="/files/${part.image_pair.figma}" id="img-figma-${part.part_index}" class="max-w-full max-h-[50vh] w-auto h-auto block" onload="setupCanvas(this, 'canvas-figma-${part.part_index}')">
+                                            <canvas id="canvas-figma-${part.part_index}" class="absolute inset-0 z-10 cursor-crosshair" onmousemove="handleCanvasHover(event, '${part.part_index}', 'figma')" onmouseleave="hideTooltip()"></canvas>
+                                        </div>
+                                    </div>
                                 </div>
-                                <div class="relative overflow-hidden rounded-lg border border-gray-200 bg-gray-100 shadow-inner">
-                                    <img src="/files/${part.image_pair.figma}" id="img-figma-${part.part_index}" class="w-full h-auto block" onload="setupCanvas(this, 'canvas-figma-${part.part_index}')">
-                                    <canvas id="canvas-figma-${part.part_index}" class="absolute inset-0 pointer-events-none z-10"></canvas>
-                                </div>
-                            </div>
-                            <!-- App Image -->
-                            <div class="relative group">
-                                <div class="text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
-                                    <i class="fas fa-mobile-alt text-gray-500"></i> App Implementation
-                                </div>
-                                <div class="relative overflow-hidden rounded-lg border border-gray-200 bg-gray-100 shadow-inner">
-                                    <img src="/files/${part.image_pair.app}" id="img-app-${part.part_index}" class="w-full h-auto block" onload="setupCanvas(this, 'canvas-app-${part.part_index}')">
-                                    <canvas id="canvas-app-${part.part_index}" class="absolute inset-0 pointer-events-none z-10"></canvas>
+                                <!-- App Image -->
+                                <div class="relative group">
+                                    <div class="text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
+                                        <i class="fas fa-mobile-alt text-gray-500"></i> App Implementation
+                                    </div>
+                                    <div class="rounded-lg border border-gray-200 bg-gray-100 shadow-inner h-[50vh] flex items-center justify-center bg-gray-50 overflow-hidden">
+                                        <div class="relative">
+                                            <img src="/files/${part.image_pair.app}" id="img-app-${part.part_index}" class="max-w-full max-h-[50vh] w-auto h-auto block" onload="setupCanvas(this, 'canvas-app-${part.part_index}')">
+                                            <canvas id="canvas-app-${part.part_index}" class="absolute inset-0 z-10 cursor-crosshair" onmousemove="handleCanvasHover(event, '${part.part_index}', 'app')" onmouseleave="hideTooltip()"></canvas>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
 
-                        <!-- Bottom Row: Tables -->
-                        <div>
+                        <!-- Right Column: Scrollable Table -->
+                        <div class="lg:w-1/2">
                             <h4 class="text-md font-bold text-gray-800 mb-3 border-l-4 border-vodafone-red pl-2">Component Comparison Table</h4>
-                            <div class="overflow-x-auto max-h-[600px] overflow-y-auto border border-gray-200 rounded-lg mb-8 shadow-sm">
+                            <div class="overflow-x-auto border border-gray-200 rounded-lg mb-8 shadow-sm">
                                 <table class="w-full text-left text-sm text-gray-600">
                                     <thead class="bg-gray-100 text-gray-700 uppercase font-semibold sticky top-0 z-20 text-xs shadow-sm">
                                         <tr>
@@ -561,6 +635,7 @@
                                     </thead>
                                     <tbody class="divide-y divide-gray-100 bg-white">
                 `;
+
 
                 let tableRows = '';
                 const matched = part.comparison_results?.matched_components || [];
@@ -652,6 +727,22 @@
                 content.innerHTML = gridHtml + tableRows + closingHtml;
                 partEl.appendChild(content);
                 container.appendChild(partEl);
+
+                // Store data for hover
+                // We need to access this data globally or attach it to the DOM
+                // Let's attach it to the canvas elements for easy access
+                setTimeout(() => {
+                    const canvasF = document.getElementById(`canvas-figma-${part.part_index}`);
+                    const canvasA = document.getElementById(`canvas-app-${part.part_index}`);
+                    if (canvasF) canvasF.dataset.components = JSON.stringify(
+                        (part.comparison_results.matched_components || []).map(m => m.raw_data.figma_analysis)
+                            .concat(part.comparison_results.unmatched_figma || [])
+                    );
+                    if (canvasA) canvasA.dataset.components = JSON.stringify(
+                        (part.comparison_results.matched_components || []).map(m => m.raw_data.app_analysis)
+                            .concat(part.comparison_results.unmatched_app || [])
+                    );
+                }, 500);
             });
         }
 
@@ -759,6 +850,112 @@
             ctx.fillStyle = color + '33'; // 20% opacity
             ctx.fillRect(x, y, w, h);
         }
+        // --- BALLOON TOOLTIP LOGIC ---
+        const tooltip = document.createElement('div');
+        tooltip.id = 'balloon-tooltip';
+        tooltip.className = 'fixed z-50 hidden bg-gray-900 text-white text-xs rounded px-3 py-2 shadow-xl pointer-events-none transform -translate-x-1/2 -translate-y-full mb-2 transition-opacity duration-200';
+        tooltip.style.maxWidth = '250px';
+        tooltip.innerHTML = `
+            <div class="font-bold mb-1 text-yellow-400" id="tt-title"></div>
+            <div class="text-gray-300" id="tt-desc"></div>
+            <div class="absolute bottom-[-6px] left-1/2 transform -translate-x-1/2 w-3 h-3 bg-gray-900 rotate-45"></div>
+        `;
+        document.body.appendChild(tooltip);
+
+        function handleCanvasHover(e, partIndex, type) {
+            const canvas = e.target;
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+
+            // Mouse pos relative to canvas (scaled to natural image size)
+            // Wait! The canvas is sized to the displayed image size in setupCanvas?
+            // No, setupCanvas sets canvas.width = img.naturalWidth usually for high res drawing
+            // Let's check setupCanvas... it sets canvas.width = img.width (displayed width)
+            // BUT we need to map mouse pos to the coordinate system of the components (which are usually natural size)
+
+            // Assuming components bounds are in NATURAL image coordinates.
+            // And assuming we want to check collision in NATURAL coordinates.
+
+            // Get the image element to find natural size
+            const imgId = type === 'figma' ? `img-figma-${partIndex}` : `img-app-${partIndex}`;
+            const img = document.getElementById(imgId);
+            if (!img) return;
+
+            const mouseX = (e.clientX - rect.left) * (img.naturalWidth / rect.width);
+            const mouseY = (e.clientY - rect.top) * (img.naturalHeight / rect.height);
+
+            const components = JSON.parse(canvas.dataset.components || '[]');
+
+            // Find component under mouse (reverse to find top-most)
+            let found = null;
+            for (let i = components.length - 1; i >= 0; i--) {
+                const c = components[i];
+                if (!c || !c.bounds) continue;
+                const b = c.bounds;
+                if (mouseX >= b.x && mouseX <= b.x + b.w &&
+                    mouseY >= b.y && mouseY <= b.y + b.h) {
+                    found = c;
+                    break;
+                }
+            }
+
+            if (found) {
+                showTooltip(e.clientX, e.clientY, found);
+            } else {
+                hideTooltip();
+            }
+        }
+
+        function showTooltip(x, y, component) {
+            const tt = document.getElementById('balloon-tooltip');
+            const title = document.getElementById('tt-title');
+            const desc = document.getElementById('tt-desc');
+
+            title.textContent = component.name || component.type || 'Unknown';
+            desc.textContent = `Type: ${component.type}\nText: ${component.text_content || '-'}`;
+
+            tt.style.left = x + 'px';
+            tt.style.top = (y - 10) + 'px'; // 10px offset
+            tt.classList.remove('hidden');
+            tt.classList.add('opacity-100');
+        }
+
+        function hideTooltip() {
+            const tt = document.getElementById('balloon-tooltip');
+            tt.classList.add('hidden');
+            tt.classList.remove('opacity-100');
+        }
+
+        // --- ERROR POPUP LOGIC ---
+        function showError(message) {
+            // Create modal if not exists
+            let modal = document.getElementById('error-modal');
+            if (!modal) {
+                modal = document.createElement('div');
+                modal.id = 'error-modal';
+                modal.className = 'fixed inset-0 z-[100] flex items-center justify-center bg-black bg-opacity-50 hidden';
+                modal.innerHTML = `
+                    <div class="bg-white rounded-lg shadow-2xl p-6 max-w-md w-full mx-4 transform transition-all scale-100">
+                        <div class="flex items-center gap-3 mb-4 text-red-600">
+                            <i class="fas fa-exclamation-circle text-3xl"></i>
+                            <h3 class="text-xl font-bold">Error Occurred</h3>
+                        </div>
+                        <p class="text-gray-700 mb-6" id="error-message">Something went wrong.</p>
+                        <div class="flex justify-end">
+                            <button onclick="document.getElementById('error-modal').classList.add('hidden')" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-6 rounded focus:outline-none focus:shadow-outline transition duration-150 ease-in-out">
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                `;
+                document.body.appendChild(modal);
+            }
+
+            document.getElementById('error-message').textContent = message;
+            modal.classList.remove('hidden');
+        }
+
     </script>
 </body>
 
