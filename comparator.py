@@ -243,8 +243,10 @@ def _find_matches(figma_list, app_list, scale):
             matched.append((f_comp, best_cand))
             unmatched_a.remove(best_cand)
         else:
+            print(f"[Match Fail] {f_comp.get('name')} - Best Score: {best_score}")
             unmatched_f.append(f_comp)
 
+    print(f"[Debug] Matched: {len(matched)}, Unmatched Figma: {len(unmatched_f)}, Unmatched App: {len(unmatched_a)}")
     return matched, unmatched_f, unmatched_a
 
 
@@ -256,8 +258,8 @@ def _generate_results(matches, un_f, un_a, f_w, a_w, scale, tol):
         "scale_factor": scale
     }
 
-    summary = {"layout_errors": 0, "layout_success": 0, "style_audits": 0, "style_success": 0,
-               "total_matched": len(matches)}
+    summary = {"error_count": 0, "layout_success_count": 0, "warning_count": 0, "style_success_count": 0,
+               "audit_count": 0, "total_matched": len(matches)}
 
     for i, (f_c, a_c) in enumerate(matches):
         ctype = f_c.get('type', 'Container')
@@ -297,14 +299,14 @@ def _generate_results(matches, un_f, un_a, f_w, a_w, scale, tol):
         l_status = 'fail' if 'fail' in [dim['status'], spc['status'], pad['status']] else 'pass'
 
         if l_status == 'fail':
-            summary["layout_errors"] += 1
+            summary["error_count"] += 1
         else:
-            summary["layout_success"] += 1
+            summary["layout_success_count"] += 1
 
         if sty['status'] == 'audit':
-            summary["style_audits"] += 1
+            summary["warning_count"] += 1
         elif sty['status'] == 'pass':
-            summary["style_success"] += 1
+            summary["style_success_count"] += 1
 
         res["matched_components"].append({
             "name": f_c.get('name', f"comp_{i}"),

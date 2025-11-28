@@ -29,3 +29,12 @@ app_screenshot_part_*.jpg
 *.egg-info/
 dist/
 build/
+
+# Debug Files
+debug_*.json
+DEBUG_*.png
+app_layout_dump.xml
+
+# Uploads and Generated Content
+web_uploads/
+audit_report_images/

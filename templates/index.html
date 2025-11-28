@@ -1,0 +1,697 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Design Auditor - Vodafone Edition</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/js/all.min.js"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        vodafone: {
+                            red: '#E60000',
+                            dark: '#333333',
+                            gray: '#F4F4F4'
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['"Open Sans"', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            font-family: 'Open Sans', sans-serif;
+        }
+
+        .glass {
+            background: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(0, 0, 0, 0.05);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+
+        .gradient-text {
+            color: #E60000;
+        }
+
+        .drop-zone {
+            transition: all 0.3s ease;
+            background-color: #F9FAFB;
+        }
+
+        .drop-zone.dragover {
+            border-color: #E60000;
+            background-color: rgba(230, 0, 0, 0.05);
+        }
+
+        @keyframes pulse-ring {
+            0% {
+                transform: scale(0.95);
+                box-shadow: 0 0 0 0 rgba(230, 0, 0, 0.7);
+            }
+
+            70% {
+                transform: scale(1);
+                box-shadow: 0 0 0 10px rgba(230, 0, 0, 0);
+            }
+
+            100% {
+                transform: scale(0.95);
+                box-shadow: 0 0 0 0 rgba(230, 0, 0, 0);
+            }
+        }
+
+        .animate-pulse-ring {
+            animation: pulse-ring 2s infinite;
+        }
+    </style>
+</head>
+
+<body class="bg-gray-50 text-gray-900 min-h-screen selection:bg-red-100 selection:text-red-900">
+
+    <!-- Navbar -->
+    <nav class="border-b border-gray-200 bg-white/80 backdrop-blur fixed w-full z-50 shadow-sm">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-16">
+                <div class="flex items-center gap-3">
+                    <!-- Vodafone Logo Image -->
+                    <div class="w-10 h-10 flex items-center justify-center">
+                        <img src="/static/vodafone_icon.png" alt="Vodafone Logo" class="w-full h-full object-contain">
+                    </div>
+                    <span class="font-bold text-xl tracking-tight text-gray-900">AI Design Auditor</span>
+                </div>
+                <div class="flex items-center gap-4">
+                    <div id="adb-status"
+                        class="flex items-center gap-2 px-3 py-1 rounded-full bg-gray-100 text-xs font-medium text-gray-500 border border-gray-200">
+                        <div class="w-2 h-2 rounded-full bg-gray-400"></div>
+                        Checking ADB...
+                    </div>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="pt-24 pb-12 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
+
+        <!-- Hero -->
+        <div class="text-center mb-12">
+            <h1 class="text-4xl md:text-5xl font-bold mb-4 text-gray-900">
+                Pixel Perfect <span class="gradient-text">Design Audits</span>
+            </h1>
+            <p class="text-gray-600 text-lg max-w-2xl mx-auto">
+                Upload your Figma designs and let AI verify the implementation against the real app.
+            </p>
+        </div>
+
+        <!-- Input Section -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-12">
+
+            <!-- Figma Upload -->
+            <div class="glass rounded-2xl p-6 bg-white">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-xl font-semibold flex items-center gap-2 text-gray-800">
+                        <i class="fab fa-figma text-gray-900"></i> Figma Designs
+                    </h2>
+                    <span
+                        class="text-xs text-red-600 bg-red-50 px-2 py-1 rounded border border-red-100 font-medium">Required</span>
+                </div>
+                <div id="figma-drop"
+                    class="drop-zone border-2 border-dashed border-gray-300 rounded-xl p-8 text-center cursor-pointer hover:border-red-500 h-64 flex flex-col items-center justify-center relative bg-gray-50 hover:bg-red-50 transition-colors">
+                    <input type="file" id="figma-input" multiple accept="image/*"
+                        class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20">
+
+                    <div id="figma-placeholder"
+                        class="flex flex-col items-center justify-center w-full h-full transition-opacity duration-300">
+                        <i class="fas fa-cloud-upload-alt text-4xl text-gray-400 mb-4 group-hover:text-red-500"></i>
+                        <p class="text-gray-700 font-medium">Drop Figma PNGs here</p>
+                        <p class="text-sm text-gray-500 mt-1">or click to browse</p>
+                        <div id="figma-file-list" class="mt-4 flex flex-wrap gap-2 justify-center"></div>
+                    </div>
+
+                    <img id="figma-preview"
+                        class="hidden absolute inset-0 w-full h-full object-contain p-4 z-10 rounded-xl" />
+                </div>
+            </div>
+
+            <!-- App Source -->
+            <div class="glass rounded-2xl p-6 bg-white">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-xl font-semibold flex items-center gap-2 text-gray-800">
+                        <i class="fas fa-mobile-alt text-gray-900"></i> App Implementation
+                    </h2>
+
+                    <!-- Toggle -->
+                    <div class="flex bg-gray-100 rounded-lg p-1 border border-gray-200">
+                        <button id="btn-mode-upload"
+                            class="px-3 py-1 rounded-md text-sm font-medium bg-white text-gray-900 shadow-sm transition-all"
+                            onclick="setMode('upload')">Upload</button>
+                        <button id="btn-mode-adb"
+                            class="px-3 py-1 rounded-md text-sm font-medium text-gray-500 hover:text-gray-900 transition-all"
+                            onclick="setMode('adb')">ADB (Auto)</button>
+                    </div>
+                </div>
+
+                <!-- Upload Mode -->
+                <div id="app-upload-area"
+                    class="drop-zone border-2 border-dashed border-gray-300 rounded-xl p-8 text-center cursor-pointer hover:border-red-500 h-64 flex flex-col items-center justify-center relative bg-gray-50 hover:bg-red-50 transition-colors">
+                    <input type="file" id="app-input" multiple accept="image/*,.xml"
+                        class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20">
+
+                    <div id="app-placeholder"
+                        class="flex flex-col items-center justify-center w-full h-full transition-opacity duration-300">
+                        <i class="fas fa-images text-4xl text-gray-400 mb-4"></i>
+                        <p class="text-gray-700 font-medium">Drop App Screenshots & XML here</p>
+                        <p class="text-sm text-gray-500 mt-1">or click to browse</p>
+                        <div id="app-file-list" class="mt-4 flex flex-wrap gap-2 justify-center"></div>
+                    </div>
+
+                    <img id="app-preview"
+                        class="hidden absolute inset-0 w-full h-full object-contain p-4 z-10 rounded-xl" />
+                </div>
+
+                <!-- ADB Mode -->
+                <div id="app-adb-area"
+                    class="hidden h-64 flex flex-col items-center justify-center bg-gray-50 rounded-xl border border-gray-200">
+                    <div
+                        class="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-4 animate-pulse-ring">
+                        <i class="fas fa-wifi text-2xl text-red-600"></i>
+                    </div>
+                    <h3 class="text-lg font-medium text-gray-900">Ready to Connect</h3>
+                    <p class="text-gray-500 text-sm mt-2 text-center px-8">
+                        Ensure your device is connected via USB and USB Debugging is enabled.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings & Action -->
+        <div class="flex flex-col items-center gap-6 mb-16">
+            <!-- Advanced Settings Toggle -->
+            <button onclick="document.getElementById('settings-panel').classList.toggle('hidden')"
+                class="text-sm text-gray-500 hover:text-red-600 flex items-center gap-1 transition-colors">
+                <i class="fas fa-sliders-h"></i> Advanced Settings
+            </button>
+
+            <div id="settings-panel"
+                class="hidden w-full max-w-2xl glass p-6 rounded-xl bg-white grid grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1 font-semibold">App Analysis Mode</label>
+                    <select id="analysis-mode"
+                        class="w-full bg-gray-50 border border-gray-300 rounded px-3 py-2 text-sm text-gray-900 focus:border-red-500 outline-none focus:ring-1 focus:ring-red-500">
+                        <option value="xml">XML (UIAutomator)</option>
+                        <option value="ai" selected>AI (Visual Analysis)</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1 font-semibold">Crop Top (px)</label>
+                    <input type="number" id="crop-top" value="0"
+                        class="w-full bg-gray-50 border border-gray-300 rounded px-3 py-2 text-sm text-gray-900 focus:border-red-500 outline-none focus:ring-1 focus:ring-red-500">
+                </div>
+            </div>
+
+            <button onclick="runAudit()" id="run-btn"
+                class="group relative px-8 py-4 bg-vodafone-red hover:bg-red-700 text-white rounded-xl font-bold text-lg shadow-lg shadow-red-200 transition-all hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed">
+                <span class="flex items-center gap-2">
+                    <i class="fas fa-play"></i> Run Audit
+                </span>
+            </button>
+        </div>
+
+        <!-- Loading Overlay -->
+        <div id="loading-overlay"
+            class="hidden fixed inset-0 bg-white/90 backdrop-blur-sm z-50 flex flex-col items-center justify-center">
+            <div class="w-16 h-16 border-4 border-red-200 border-t-red-600 rounded-full animate-spin mb-4"></div>
+            <h2 class="text-2xl font-bold text-gray-900 mb-2">Analyzing...</h2>
+            <p class="text-gray-500" id="loading-text">Processing images and running AI models</p>
+        </div>
+
+        <!-- Results Section -->
+        <div id="results-section" class="hidden space-y-12">
+
+            <!-- Summary Cards -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div class="glass p-6 rounded-xl border-l-4 border-green-500 bg-white">
+                    <div class="text-gray-500 text-sm font-medium mb-1">Passed</div>
+                    <div class="text-3xl font-bold text-gray-900" id="res-pass">0</div>
+                </div>
+                <div class="glass p-6 rounded-xl border-l-4 border-red-500 bg-white">
+                    <div class="text-gray-500 text-sm font-medium mb-1">Failed</div>
+                    <div class="text-3xl font-bold text-gray-900" id="res-fail">0</div>
+                </div>
+                <div class="glass p-6 rounded-xl border-l-4 border-yellow-500 bg-white">
+                    <div class="text-gray-500 text-sm font-medium mb-1">Warnings</div>
+                    <div class="text-3xl font-bold text-gray-900" id="res-warn">0</div>
+                </div>
+                <div class="glass p-6 rounded-xl border-l-4 border-blue-500 bg-white">
+                    <div class="text-gray-500 text-sm font-medium mb-1">Match Score</div>
+                    <div class="text-3xl font-bold text-gray-900" id="res-score">0%</div>
+                </div>
+            </div>
+
+            <!-- Detailed Results Container -->
+            <div id="results-container" class="space-y-8">
+                <!-- Dynamic Content will be injected here -->
+            </div>
+
+        </div>
+
+    </main>
+
+    <script>
+        let currentMode = 'upload';
+
+        // Check ADB Status on Load
+        async function checkADB() {
+            try {
+                const res = await fetch('/adb/check');
+                const data = await res.json();
+                const statusEl = document.getElementById('adb-status');
+                if (data.status === 'connected') {
+                    statusEl.innerHTML = '<div class="w-2 h-2 rounded-full bg-green-500"></div> ADB Connected';
+                    statusEl.classList.replace('text-gray-500', 'text-green-600');
+                    statusEl.classList.replace('bg-gray-100', 'bg-green-50');
+                } else {
+                    statusEl.innerHTML = '<div class="w-2 h-2 rounded-full bg-red-500"></div> ADB Disconnected';
+                    statusEl.classList.replace('text-gray-500', 'text-red-600');
+                    statusEl.classList.replace('bg-gray-100', 'bg-red-50');
+                }
+            } catch (e) {
+                console.error("ADB Check failed", e);
+            }
+        }
+        checkADB();
+
+        function setMode(mode) {
+            currentMode = mode;
+            const btnUpload = document.getElementById('btn-mode-upload');
+            const btnAdb = document.getElementById('btn-mode-adb');
+            const areaUpload = document.getElementById('app-upload-area');
+            const areaAdb = document.getElementById('app-adb-area');
+
+            if (mode === 'upload') {
+                btnUpload.classList.add('bg-white', 'text-gray-900', 'shadow-sm');
+                btnUpload.classList.remove('text-gray-500', 'hover:text-gray-900');
+                btnAdb.classList.remove('bg-white', 'text-gray-900', 'shadow-sm');
+                btnAdb.classList.add('text-gray-500', 'hover:text-gray-900');
+
+                areaUpload.classList.remove('hidden');
+                areaAdb.classList.add('hidden');
+            } else {
+                btnAdb.classList.add('bg-white', 'text-gray-900', 'shadow-sm');
+                btnAdb.classList.remove('text-gray-500', 'hover:text-gray-900');
+                btnUpload.classList.remove('bg-white', 'text-gray-900', 'shadow-sm');
+                btnUpload.classList.add('text-gray-500', 'hover:text-gray-900');
+
+                areaUpload.classList.add('hidden');
+                areaAdb.classList.remove('hidden');
+            }
+        }
+
+        // File Input Handling
+        function handleFileSelect(inputId, listId, previewId, placeholderId) {
+            const input = document.getElementById(inputId);
+            const list = document.getElementById(listId);
+            const preview = document.getElementById(previewId);
+            const placeholder = document.getElementById(placeholderId);
+
+            input.addEventListener('change', (e) => {
+                list.innerHTML = '';
+                const files = Array.from(e.target.files);
+
+                if (files.length > 0) {
+                    const file = files[0];
+
+                    // Show Preview if Image
+                    if (file.type.startsWith('image/')) {
+                        const reader = new FileReader();
+                        reader.onload = (e) => {
+                            preview.src = e.target.result;
+                            preview.classList.remove('hidden');
+                            placeholder.classList.add('opacity-0'); // Hide placeholder but keep layout
+                        };
+                        reader.readAsDataURL(file);
+                    } else {
+                        // Hide preview if not image (e.g. XML)
+                        preview.classList.add('hidden');
+                        placeholder.classList.remove('opacity-0');
+                    }
+
+                    // List files
+                    files.forEach(f => {
+                        const tag = document.createElement('span');
+                        tag.className = 'px-2 py-1 bg-gray-100 rounded text-xs text-gray-700 border border-gray-200 z-30 relative'; // z-30 to be above input? No, input needs to be top.
+                        // Actually, if input is top, we can't click tags. But we don't need to click tags.
+                        tag.textContent = f.name;
+                        list.appendChild(tag);
+                    });
+                } else {
+                    preview.classList.add('hidden');
+                    placeholder.classList.remove('opacity-0');
+                }
+            });
+        }
+        handleFileSelect('figma-input', 'figma-file-list', 'figma-preview', 'figma-placeholder');
+        handleFileSelect('app-input', 'app-file-list', 'app-preview', 'app-placeholder');
+
+        async function runAudit() {
+            const figmaInput = document.getElementById('figma-input');
+            const appInput = document.getElementById('app-input');
+
+            if (figmaInput.files.length === 0) {
+                alert("Please upload at least one Figma design.");
+                return;
+            }
+
+            if (currentMode === 'upload' && appInput.files.length === 0) {
+                alert("Please upload App screenshots/XML or switch to ADB mode.");
+                return;
+            }
+
+            // Show Loading
+            document.getElementById('loading-overlay').classList.remove('hidden');
+
+            const formData = new FormData();
+
+            // Append Figma Files
+            Array.from(figmaInput.files).forEach(file => {
+                formData.append('figma_files', file);
+            });
+
+            // Append App Files if Upload Mode
+            if (currentMode === 'upload') {
+                Array.from(appInput.files).forEach(file => {
+                    formData.append('app_files', file);
+                });
+            }
+
+            // Settings
+            formData.append('use_adb', currentMode === 'adb');
+            formData.append('app_analysis_mode', document.getElementById('analysis-mode').value);
+            formData.append('figma_crop_top', document.getElementById('crop-top').value);
+
+            try {
+                const response = await fetch('/analyze', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await response.json();
+
+                if (result.error) {
+                    alert("Error: " + result.error);
+                } else {
+                    renderResults(result);
+                }
+            } catch (e) {
+                alert("Network Error: " + e.message);
+            } finally {
+                document.getElementById('loading-overlay').classList.add('hidden');
+            }
+        }
+
+        function renderResults(data) {
+            const section = document.getElementById('results-section');
+            section.classList.remove('hidden');
+
+            // Scroll to results
+            section.scrollIntoView({ behavior: 'smooth' });
+
+            // Update Summary
+            const summary = data.summary;
+            document.getElementById('res-pass').textContent = (summary.layout_success_count + summary.style_success_count);
+            document.getElementById('res-fail').textContent = summary.error_count;
+            document.getElementById('res-warn').textContent = summary.warning_count;
+            document.getElementById('res-score').textContent = summary.overall_match_pct + '%';
+
+            // Render Parts
+            const container = document.getElementById('results-container');
+            container.innerHTML = '';
+
+            data.parts.forEach(part => {
+                const partEl = document.createElement('div');
+                partEl.className = 'glass rounded-xl border border-gray-200 overflow-hidden bg-white shadow-sm';
+
+                // Header
+                partEl.innerHTML = `
+                    <div class="p-4 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
+                        <h3 class="font-semibold text-lg text-gray-900">Part ${part.part_index}</h3>
+                        <span class="text-xs text-gray-500">Comparison Result</span>
+                    </div>
+                `;
+
+                // Content
+                const content = document.createElement('div');
+                content.className = 'p-6';
+
+                const gridHtml = `
+                    <div class="grid grid-cols-1 xl:grid-cols-12 gap-6">
+                        <!-- Left Column: Images (Fixed/Sticky if needed, but for now just col-span) -->
+                        <div class="xl:col-span-5 space-y-6">
+                            <!-- Figma Image -->
+                            <div class="relative group">
+                                <div class="text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
+                                    <i class="fab fa-figma text-gray-500"></i> Figma Design
+                                </div>
+                                <div class="relative overflow-hidden rounded-lg border border-gray-200 bg-gray-100 shadow-inner">
+                                    <img src="/files/${part.image_pair.figma}" id="img-figma-${part.part_index}" class="w-full h-auto block" onload="setupCanvas(this, 'canvas-figma-${part.part_index}')">
+                                    <canvas id="canvas-figma-${part.part_index}" class="absolute inset-0 pointer-events-none z-10"></canvas>
+                                </div>
+                            </div>
+                            <!-- App Image -->
+                            <div class="relative group">
+                                <div class="text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
+                                    <i class="fas fa-mobile-alt text-gray-500"></i> App Implementation
+                                </div>
+                                <div class="relative overflow-hidden rounded-lg border border-gray-200 bg-gray-100 shadow-inner">
+                                    <img src="/files/${part.image_pair.app}" id="img-app-${part.part_index}" class="w-full h-auto block" onload="setupCanvas(this, 'canvas-app-${part.part_index}')">
+                                    <canvas id="canvas-app-${part.part_index}" class="absolute inset-0 pointer-events-none z-10"></canvas>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Right Column: Tables -->
+                        <div class="xl:col-span-7">
+                            <h4 class="text-md font-bold text-gray-800 mb-3 border-l-4 border-vodafone-red pl-2">Component Comparison Table</h4>
+                            <div class="overflow-x-auto max-h-[800px] overflow-y-auto border border-gray-200 rounded-lg mb-8 shadow-sm">
+                                <table class="w-full text-left text-sm text-gray-600">
+                                    <thead class="bg-gray-100 text-gray-700 uppercase font-semibold sticky top-0 z-20 text-xs shadow-sm">
+                                        <tr>
+                                            <th class="px-4 py-3 bg-gray-100">Component Name</th>
+                                            <th class="px-4 py-3 bg-gray-100 text-center">Layout</th>
+                                            <th class="px-4 py-3 bg-gray-100 text-center">Style</th>
+                                            <th class="px-4 py-3 bg-gray-100">Details</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-gray-100 bg-white">
+                `;
+
+                let tableRows = '';
+                const matched = part.comparison_results?.matched_components || [];
+                matched.forEach((comp, idx) => {
+                    const name = comp.name || "Unnamed";
+                    const layoutStatus = comp.overall_layout_status || "N/A";
+                    const styleStatus = comp.overall_style_status || "N/A";
+
+                    const getBadge = (status) => {
+                        const s = status.toLowerCase();
+                        if (s === 'pass') return `<span class="px-2 py-1 rounded text-xs font-bold bg-green-100 text-green-700 border border-green-200">PASS</span>`;
+                        if (s === 'fail') return `<span class="px-2 py-1 rounded text-xs font-bold bg-red-100 text-red-700 border border-red-200">FAIL</span>`;
+                        if (s === 'audit') return `<span class="px-2 py-1 rounded text-xs font-bold bg-yellow-100 text-yellow-700 border border-yellow-200">WARN</span>`;
+                        return `<span class="px-2 py-1 rounded text-xs font-bold bg-gray-100 text-gray-600 border border-gray-200">${status}</span>`;
+                    };
+
+                    // Prepare Bounds Data
+                    const fBounds = JSON.stringify(comp.raw_data.figma_analysis.bounds);
+                    const aBounds = JSON.stringify(comp.raw_data.app_analysis.bounds);
+
+                    tableRows += `
+                        <tr class="hover:bg-blue-50 transition-colors cursor-pointer group"
+                            onclick="highlightComponent(this, ${part.part_index})"
+                            data-figma-bounds='${fBounds}'
+                            data-app-bounds='${aBounds}'>
+                            <td class="px-4 py-3 font-medium text-gray-900 group-hover:text-vodafone-red flex items-center gap-2">
+                                <i class="fas fa-cube text-gray-300 group-hover:text-vodafone-red transition-colors"></i> ${name}
+                            </td>
+                            <td class="px-4 py-3 text-center">${getBadge(layoutStatus)}</td>
+                            <td class="px-4 py-3 text-center">${getBadge(styleStatus)}</td>
+                            <td class="px-4 py-3 text-xs font-mono text-gray-500">
+                                ${comp.tests?.styles?.messages?.join('<br>') || '-'}
+                            </td>
+                        </tr>
+                    `;
+                });
+
+                let unmatchedHtml = '';
+                // Unmatched Figma Components (Control List)
+                const unmatchedFigma = part.comparison_results?.unmatched_figma || [];
+                if (unmatchedFigma.length > 0) {
+                    unmatchedHtml += `
+                        <div class="mt-8">
+                            <h4 class="text-md font-bold text-gray-800 mb-3 border-l-4 border-gray-400 pl-2">Figma Component Control List (Unmatched)</h4>
+                            <div class="overflow-x-auto max-h-64 overflow-y-auto border border-gray-200 rounded-lg shadow-sm">
+                                <table class="w-full text-left text-sm text-gray-600">
+                                    <thead class="bg-gray-100 text-gray-700 uppercase font-semibold sticky top-0 z-20 text-xs shadow-sm">
+                                        <tr>
+                                            <th class="px-4 py-3 bg-gray-100">Component Name</th>
+                                            <th class="px-4 py-3 bg-gray-100">Expected Properties</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-gray-100 bg-white">
+                    `;
+
+                    unmatchedFigma.forEach(comp => {
+                        const name = comp.name || "Unnamed";
+                        const props = `
+                            <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                                <span>W: ${Math.round(comp.bounds?.w || 0)}</span>
+                                <span>H: ${Math.round(comp.bounds?.h || 0)}</span>
+                                <span>X: ${Math.round(comp.bounds?.x || 0)}</span>
+                                <span>Y: ${Math.round(comp.bounds?.y || 0)}</span>
+                            </div>
+                        `;
+                        const fBounds = JSON.stringify(comp.bounds);
+
+                        unmatchedHtml += `
+                            <tr class="hover:bg-gray-50 transition-colors cursor-pointer"
+                                onclick="highlightFigmaOnly(this, ${part.part_index})"
+                                data-figma-bounds='${fBounds}'>
+                                <td class="px-4 py-3 font-medium text-gray-900">${name}</td>
+                                <td class="px-4 py-3 font-mono text-gray-500">${props}</td>
+                            </tr>
+                        `;
+                    });
+                    unmatchedHtml += `</tbody></table></div></div>`;
+                }
+
+                const closingHtml = `
+                                    </tbody>
+                                </table>
+                            </div>
+                            ${unmatchedHtml}
+                        </div>
+                    </div>
+                `;
+
+                content.innerHTML = gridHtml + tableRows + closingHtml;
+                partEl.appendChild(content);
+                container.appendChild(partEl);
+            });
+        }
+
+        // Canvas Setup
+        function setupCanvas(img, canvasId) {
+            const canvas = document.getElementById(canvasId);
+
+            const updateSize = () => {
+                if (img.width > 0 && img.height > 0) {
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    // Redraw if there was an active highlight
+                    if (activeRow) {
+                        const partIndex = canvasId.split('-').pop();
+                        // Re-trigger highlight to redraw on new size
+                        // We need to find which part this is.
+                        // Actually, highlightComponent redraws both.
+                        // But we don't have easy access to row here.
+                        // It's fine, user can click again or we rely on the fact that 
+                        // usually resize happens on window resize which we might not handle perfectly for active highlight yet.
+                        // But for initial load, this ensures canvas has size.
+                    }
+                }
+            };
+
+            // Initial check
+            if (img.complete) updateSize();
+            else img.onload = updateSize;
+
+            // Robust resize observation
+            const resizeObserver = new ResizeObserver(() => {
+                updateSize();
+            });
+            resizeObserver.observe(img);
+        }
+
+        let activeRow = null;
+
+        function highlightComponent(row, partIndex) {
+            // Toggle Active State
+            if (activeRow) activeRow.classList.remove('bg-blue-100');
+            if (activeRow === row) {
+                activeRow = null;
+                clearCanvases(partIndex);
+                return;
+            }
+
+            activeRow = row;
+            row.classList.add('bg-blue-100');
+
+            // Get Data
+            const fBounds = JSON.parse(row.getAttribute('data-figma-bounds'));
+            const aBounds = JSON.parse(row.getAttribute('data-app-bounds'));
+
+            console.log("Highlighting:", { partIndex, fBounds, aBounds });
+
+            drawRect(`img-figma-${partIndex}`, `canvas-figma-${partIndex}`, fBounds, '#00C853'); // Green for Figma
+            drawRect(`img-app-${partIndex}`, `canvas-app-${partIndex}`, aBounds, '#E60000'); // Red for App
+        }
+
+        function highlightFigmaOnly(row, partIndex) {
+            if (activeRow) activeRow.classList.remove('bg-blue-100');
+            activeRow = row;
+            row.classList.add('bg-blue-100');
+
+            clearCanvases(partIndex);
+            const fBounds = JSON.parse(row.getAttribute('data-figma-bounds'));
+            drawRect(`img-figma-${partIndex}`, `canvas-figma-${partIndex}`, fBounds, '#FF9100'); // Orange for Unmatched
+        }
+
+        function clearCanvases(partIndex) {
+            const c1 = document.getElementById(`canvas-figma-${partIndex}`);
+            const c2 = document.getElementById(`canvas-app-${partIndex}`);
+            if (c1) c1.getContext('2d').clearRect(0, 0, c1.width, c1.height);
+            if (c2) c2.getContext('2d').clearRect(0, 0, c2.width, c2.height);
+        }
+
+        function drawRect(imgId, canvasId, bounds, color) {
+            const img = document.getElementById(imgId);
+            const canvas = document.getElementById(canvasId);
+            const ctx = canvas.getContext('2d');
+
+            // Clear previous
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Calculate Scale
+            // bounds are in natural image coordinates
+            // canvas is sized to displayed image size (img.width, img.height)
+            // So we need to scale bounds by (displayed / natural)
+
+            const scaleX = img.width / img.naturalWidth;
+            const scaleY = img.height / img.naturalHeight;
+
+            const x = bounds.x * scaleX;
+            const y = bounds.y * scaleY;
+            const w = bounds.w * scaleX;
+            const h = bounds.h * scaleY;
+
+            // Draw
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 3;
+            ctx.strokeRect(x, y, w, h);
+
+            // Fill with transparent color
+            ctx.fillStyle = color + '33'; // 20% opacity
+            ctx.fillRect(x, y, w, h);
+        }
+    </script>
+</body>
+
+</html>

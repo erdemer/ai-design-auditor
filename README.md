@@ -58,7 +58,7 @@ This tool's "secret" is that it delegates the *brittle* task of "matching" to th
 
 1.  **Clone the repository:**
     ```bash
-    git clone [https://github.com/your-username/ai-design-auditor.git](https://github.com/your-username/ai-design-auditor.git)
+    git clone https://github.com/your-username/ai-design-auditor.git
     cd ai-design-auditor
     ```
 
@@ -70,7 +70,7 @@ This tool's "secret" is that it delegates the *brittle* task of "matching" to th
 
 3.  **Install dependencies:**
     ```bash
-    pip install google-generativeai pillow python-dotenv
+    pip install google-generativeai pillow python-dotenv fastapi uvicorn python-multipart
     ```
 
 4.  **(Optional) Ensure ADB is installed:** If you want to use "Automatic Mode," make sure `adb` is installed and accessible in your system's PATH.
@@ -93,9 +93,28 @@ This tool requires a Google Gemini API key.
 
 ---
 
-## 🛠️ Usage
+## 🖥️ Web GUI Usage (Recommended)
 
-There are two ways to run the auditor:
+The easiest way to use the tool is via the modern Web Interface.
+
+1.  **Start the Server:**
+    ```bash
+    uvicorn server:app --host 0.0.0.0 --port 8000 --reload
+    ```
+
+2.  **Open in Browser:**
+    Go to `http://localhost:8000`
+
+3.  **Features:**
+    *   **Drag & Drop Upload:** Easily upload Figma designs and App screenshots.
+    *   **Visual Previews:** See your uploaded images before analyzing.
+    *   **Side-by-Side Comparison:** View the Figma design and App implementation next to each other.
+    *   **Interactive Highlighting:** Click on any component in the results table to see it highlighted on both images.
+    *   **AI Analysis Mode:** Choose between XML-based (UIAutomator) or AI-based (Visual) analysis for the App screenshot.
+
+## 🛠️ CLI Usage
+
+You can also run the tool from the command line:
 
 ### Mode 1: Automatic (ADB)
 Best for simple, single-screen (non-scrolling) tests.
@@ -110,3 +129,4 @@ python run_audit.py \
     --figma-parts figma_login.png \
     --app-crop-top 80 \
     --app-crop-bottom 140
+```

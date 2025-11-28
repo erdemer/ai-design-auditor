@@ -96,8 +96,20 @@ def main():
 
     args = parser.parse_args()
 
+def run_audit_process(
+    figma_parts,
+    app_parts=None,
+    app_analysis_mode=config.APP_ANALYSIS_MODE,
+    figma_crop_top=0,
+    figma_crop_bottom=0,
+    app_crop_top=0,
+    app_crop_bottom=0
+):
+    """
+    Core audit logic extracted for external use (e.g., Web GUI).
+    """
     # Run Mode belirle
-    if args.app_parts:
+    if app_parts:
         run_mode = "manual"
         print("[Mod] 'Manuel Mod' aktif. Sağlanan App dosyaları kullanılacak.")
     else:
@@ -111,7 +123,7 @@ def main():
         "all_warnings": []
     }
 
-    num_parts = len(args.figma_parts)
+    num_parts = len(figma_parts)
     last_successful_ss_path = None  # Sadece 'scroll'u algılamak için
 
     if run_mode == "auto":
@@ -125,9 +137,11 @@ def main():
                 last_successful_ss_path = fallback_path
             else:
                 print("[Oto-Mod] HATA: Ne ADB ne de yerel fallback ekran görüntüsü alınabildi.")
-                sys.exit(1)
+                # Return empty report with error
+                final_report["error"] = "ADB ve yerel ekran görüntüsü alınamadı."
+                return final_report
 
-    for i, figma_part_path in enumerate(args.figma_parts):
+    for i, figma_part_path in enumerate(figma_parts):
         part_index = i
         print(f"\n--- Parça {part_index} işleniyor ---")
         if not os.path.exists(figma_part_path):
@@ -138,7 +152,7 @@ def main():
         app_ss_path_for_report = None
 
         if run_mode == "manual":
-            app_xml_path = args.app_parts[i]
+            app_xml_path = app_parts[i]
             print(f"   App XML (Manuel): '{app_xml_path}'")
             if not os.path.exists(app_xml_path):
                 print(f"HATA: App XML parçası '{app_xml_path}' bulunamadı. Atlanıyor.")
@@ -156,7 +170,7 @@ def main():
                 app_ss_path_for_report = last_successful_ss_path
             else:
                 print("[Oto-Scroll] Kaydırma deneniyor...")
-                scroll_success = adb_client.scroll_down(args.app_crop_top, args.app_crop_bottom)
+                scroll_success = adb_client.scroll_down(app_crop_top, app_crop_bottom)
                 new_ss_path = adb_client.take_screenshot(part_index)
 
                 if not scroll_success or not new_ss_path:
@@ -190,9 +204,9 @@ def main():
         # 2. Adım: Görüntüleri Kırp (Opsiyonel)
         # SADECE AI'ye gidecek olan FIGMA görüntüsünü kırp
         figma_cropped_path = figma_part_path
-        if args.figma_crop_top > 0 or args.figma_crop_bottom > 0:
+        if figma_crop_top > 0 or figma_crop_bottom > 0:
             figma_cropped_path = _crop_image(
-                figma_part_path, args.figma_crop_top, args.figma_crop_bottom,
+                figma_part_path, figma_crop_top, figma_crop_bottom,
                 f"figma_cropped_part_{part_index}.png"
             )
         else:
@@ -200,9 +214,9 @@ def main():
 
         # App SS'ini SADECE RAPORLAMA için kırp
         app_cropped_path_for_report = app_ss_path_for_report
-        if app_ss_path_for_report and (args.app_crop_top > 0 or args.app_crop_bottom > 0):
+        if app_ss_path_for_report and (app_crop_top > 0 or app_crop_bottom > 0):
             app_cropped_path_for_report = _crop_image(
-                app_ss_path_for_report, args.app_crop_top, args.app_crop_bottom,
+                app_ss_path_for_report, app_crop_top, app_crop_bottom,
                 f"app_cropped_part_{part_index}.png"
             )
 
@@ -229,7 +243,7 @@ def main():
             print(f"HATA: Kırpılmış görüntü boyutları okunurken hata: {e}. Parça atlanıyor.")
             continue
 
-        if args.app_analysis_mode == "ai":
+        if app_analysis_mode == "ai":
             if not app_cropped_path_for_report:
                 print("UYARI: App için kırpılmış ekran görüntüsü bulunamadı, XML moduna düşülüyor.")
                 if not app_xml_path_for_analysis:
@@ -273,6 +287,7 @@ def main():
                         config.DEFAULT_TOLERANCE_PX
                     )
         else:
+            print(f"[Debug] XML Modu: compare_layouts çağrılıyor... XML: {app_xml_path_for_analysis}")
             results_part = comparator.compare_layouts(
                 figma_data_json,
                 app_xml_path_for_analysis,
@@ -280,6 +295,7 @@ def main():
                 app_width,
                 config.DEFAULT_TOLERANCE_PX
             )
+            print(f"[Debug] compare_layouts tamamlandı. Sonuç özeti: {results_part.get('summary')}")
 
         # 5. Adım: Sonuçları Ana Rapora Ekle
         final_report["parts"].append({
@@ -318,6 +334,55 @@ def main():
         summary["layout_match_pct"] = 0.0
         summary["style_match_pct"] = 0.0
         summary["overall_match_pct"] = 0.0
+
+    return final_report
+
+
+def main():
+    print("--- AI Design Auditor (v8.0 - XML vs AI-JSON) Başlatılıyor ---")
+
+    # 1. Girdi (Argüman) Kontrolü
+    parser = argparse.ArgumentParser(description="AI Tasarım Denetimi Aracı (V10 Hibrit Mod)")
+
+    parser.add_argument(
+        "--figma-parts",
+        nargs='+',
+        required=True,
+        help="Karşılaştırılacak Figma PNG parçalarının yolları (Sırayla, örn: part1.png)"
+    )
+    # --- GÜNCELLENMİŞ ARGÜMAN: Artık .xml dosyaları da olabilir ---
+    parser.add_argument(
+        "--app-parts",
+        nargs='+',
+        required=False,
+        help="(Opsiyonel) Manuel olarak alınan App SS (.png) VE XML (.xml) parçaları. Eğer verilmezse, ADB kullanılır."
+    )
+
+    parser.add_argument(
+        "--app-analysis-mode",
+        choices=["xml", "ai"],
+        default=config.APP_ANALYSIS_MODE,
+        help="App tarafını XML (uiautomator) veya AI (görüntü analizi) ile çözümle."
+    )
+
+    parser.add_argument("--figma-crop-top", type=int, default=0, help="Figma PNG'lerinden üstten kırpılacak piksel.")
+    parser.add_argument("--figma-crop-bottom", type=int, default=0, help="Figma PNG'lerinden alttan kırpılacak piksel.")
+    parser.add_argument("--app-crop-top", type=int, default=0,
+                        help="TÜM App SS'lerinden üstten kırpılacak piksel (örn: status bar).")
+    parser.add_argument("--app-crop-bottom", type=int, default=0,
+                        help="TÜM App SS'lerinden alttan kırpılacak piksel (örn: nav bar).")
+
+    args = parser.parse_args()
+
+    final_report = run_audit_process(
+        figma_parts=args.figma_parts,
+        app_parts=args.app_parts,
+        app_analysis_mode=args.app_analysis_mode,
+        figma_crop_top=args.figma_crop_top,
+        figma_crop_bottom=args.figma_crop_bottom,
+        app_crop_top=args.app_crop_top,
+        app_crop_bottom=args.app_crop_bottom
+    )
 
     report_generator.create_html_report(final_report)
 
