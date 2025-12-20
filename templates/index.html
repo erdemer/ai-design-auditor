@@ -334,6 +334,87 @@
     <script>
         let currentMode = 'upload';
         let currentFigmaMode = 'upload';
+        let currentSummary = null; // Store summary data globally for updates
+
+        function updateSummaryUI() {
+            if (!currentSummary) return;
+
+            // Recalc Percentage
+            let total = currentSummary.total_matched; // This now represents "Active" matched items, or should we keep total static?
+            // User requested: "increase its ratio". This implies removing it from the denominator or numerator effectively.
+            
+            // Actually, if we ignore, we should probably remove it from both calculations if we treat it as "False Positive" (didn't happen).
+            // OR if we treat it as "Ignore this failure", maybe it becomes a PASS?
+            // "if AI's wrong ignore that control and increase its ratio" -> implies removing the failure.
+            
+            // Let's adopt the strategy: Ignored items are REMOVED from the stats calculation entirely.
+            // So Total Matched decreases.
+            
+            let layoutPct = 0;
+            // stylePct = 0; // Not displayed in summary cards but good to have
+            let overallPct = 0;
+
+            if (total > 0) {
+                 // Formula from python: ((layout_success + style_success) / (2 * total)) * 100
+                 overallPct = ((currentSummary.layout_success_count + currentSummary.style_success_count) / (2 * total)) * 100.0;
+            } else {
+                overallPct = 100; // If everything is ignored, maybe 100? Or 0? Let's say 0 or keep last.
+                if (total === 0) overallPct = 0; 
+            }
+
+            document.getElementById('res-pass').textContent = (currentSummary.layout_success_count + currentSummary.style_success_count);
+            document.getElementById('res-fail').textContent = currentSummary.error_count;
+            document.getElementById('res-warn').textContent = currentSummary.warning_count;
+            document.getElementById('res-score').textContent = overallPct.toFixed(1) + '%';
+        }
+
+        function toggleIgnore(checkbox, rowId) {
+            const row = document.getElementById('row-' + rowId);
+            if (!row || !currentSummary) return;
+
+            const isIgnored = checkbox.checked;
+            const layoutStatus = row.getAttribute('data-layout-status').toLowerCase();
+            const styleStatus = row.getAttribute('data-style-status').toLowerCase();
+
+            if (isIgnored) {
+                row.classList.add('opacity-40', 'line-through', 'bg-gray-100');
+                row.classList.remove('hover:bg-blue-50'); // Disable hover effect visually
+
+                // Remove from stats
+                currentSummary.total_matched--;
+
+                if (layoutStatus === 'pass') currentSummary.layout_success_count--;
+                else if (layoutStatus === 'fail') currentSummary.error_count--;
+
+                if (styleStatus === 'pass') currentSummary.style_success_count--;
+                else if (styleStatus === 'audit') currentSummary.warning_count--;
+                // Note: styleStatus can be 'fail' too, usually bundled in warning or error? 
+                // In Python code: style fail adds to nothing? Wait.
+                // Python: if sty['status'] == 'audit' -> warning. pass -> style_success. 
+                // It seems 'fail' for style isn't explicitly counted in error_count in Python summary? 
+                // Python: l_status == 'fail' -> error_count. 
+                // Check report_generator logic if style fail affects error_count.
+                // In comparator.py: l_status is 'fail' if dim, spc, or pad fail. Style is separate. 
+                // Ah, Python summary doesn't seem to have style_fail_count.
+                // Let's stick to modifying what we have.
+                
+            } else {
+                row.classList.remove('opacity-40', 'line-through', 'bg-gray-100');
+                row.classList.add('hover:bg-blue-50');
+
+                // Add back to stats
+                currentSummary.total_matched++;
+
+                if (layoutStatus === 'pass') currentSummary.layout_success_count++;
+                else if (layoutStatus === 'fail') currentSummary.error_count++;
+
+                if (styleStatus === 'pass') currentSummary.style_success_count++;
+                else if (styleStatus === 'audit') currentSummary.warning_count++;
+            }
+            
+            updateSummaryUI();
+        }
+
 
         // Check ADB Status on Load
         async function checkADB() {
@@ -562,11 +643,14 @@
             section.scrollIntoView({ behavior: 'smooth' });
 
             // Update Summary
-            const summary = data.summary;
-            document.getElementById('res-pass').textContent = (summary.layout_success_count + summary.style_success_count);
-            document.getElementById('res-fail').textContent = summary.error_count;
-            document.getElementById('res-warn').textContent = summary.warning_count;
-            document.getElementById('res-score').textContent = summary.overall_match_pct + '%';
+            currentSummary = JSON.parse(JSON.stringify(data.summary)); // Deep copy using JSON to avoid ref issues
+            updateSummaryUI();
+            
+            // Old static render - replaced by updateSummaryUI
+            // document.getElementById('res-pass').textContent = (summary.layout_success_count + summary.style_success_count);
+            // document.getElementById('res-fail').textContent = summary.error_count;
+            // document.getElementById('res-warn').textContent = summary.warning_count;
+            // document.getElementById('res-score').textContent = summary.overall_match_pct + '%';
 
             // Render Parts
             const container = document.getElementById('results-container');
@@ -627,6 +711,7 @@
                                 <table class="w-full text-left text-sm text-gray-600">
                                     <thead class="bg-gray-100 text-gray-700 uppercase font-semibold sticky top-0 z-20 text-xs shadow-sm">
                                         <tr>
+                                            <th class="px-4 py-3 bg-gray-100 w-16 text-center">Ignore</th>
                                             <th class="px-4 py-3 bg-gray-100">Component Name</th>
                                             <th class="px-4 py-3 bg-gray-100 text-center">Layout</th>
                                             <th class="px-4 py-3 bg-gray-100 text-center">Style</th>
@@ -658,9 +743,15 @@
 
                     tableRows += `
                         <tr class="hover:bg-blue-50 transition-colors cursor-pointer group"
+                            id="row-${part.part_index}-${idx}"
                             onclick="highlightComponent(this, ${part.part_index})"
+                            data-layout-status="${layoutStatus}"
+                            data-style-status="${styleStatus}"
                             data-figma-bounds='${fBounds}'
                             data-app-bounds='${aBounds}'>
+                            <td class="px-4 py-3 text-center" onclick="event.stopPropagation()">
+                                <input type="checkbox" onchange="toggleIgnore(this, '${part.part_index}-${idx}')" class="w-4 h-4 text-gray-500 rounded border-gray-300 focus:ring-gray-500">
+                            </td>
                             <td class="px-4 py-3 font-medium text-gray-900 group-hover:text-vodafone-red flex items-center gap-2">
                                 <i class="fas fa-cube text-gray-300 group-hover:text-vodafone-red transition-colors"></i> ${name}
                             </td>

@@ -24,6 +24,18 @@ HTML_TEMPLATE = """
     h1 {{
         color: #FFFFFF;
         border-bottom: 2px solid #444;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }}
+    .ignore-checkbox {{
+        transform: scale(1.5);
+        cursor: pointer;
+    }}
+    .ignored-row {{
+        text-decoration: line-through;
+        opacity: 0.4;
+        background-color: #2a1a1a !important;
     }}
     h2 {{
         color: #FFFFFF;
@@ -173,7 +185,69 @@ HTML_TEMPLATE = """
     }}
 </style>
 <script>
+    // Initial Summary Data (Python will inject this)
+    var reportSummary = {summary_json};
+
     var activeRow = null;
+
+    function updateSummaryDOM() {{
+        // Recalculate percentages
+        var s = reportSummary;
+        var total = s.total_matched;
+        
+        var layoutPct = 0;
+        var stylePct = 0;
+        var overallPct = 0;
+
+        if (total > 0) {{
+            layoutPct = (s.layout_success_count / total) * 100.0;
+            stylePct = (s.style_success_count / total) * 100.0;
+            overallPct = (s.layout_success_count + s.style_success_count) / (2 * total) * 100.0;
+        }}
+
+        // Update DOM Elements
+        document.getElementById('s-total').innerText = total;
+        document.getElementById('s-layout-pct').innerText = layoutPct.toFixed(1);
+        document.getElementById('s-style-pct').innerText = stylePct.toFixed(1);
+        document.getElementById('s-overall-pct').innerText = overallPct.toFixed(1);
+        document.getElementById('s-errors').innerText = s.error_count;
+        document.getElementById('s-warnings').innerText = s.warning_count;
+    }}
+
+    function toggleIgnore(checkbox, rowIndex) {{
+        var row = document.getElementById('row-' + rowIndex);
+        if (!row) return;
+
+        var isIgnored = checkbox.checked;
+        var layoutStatus = row.getAttribute('data-layout-status'); // pass, fail
+        var styleStatus = row.getAttribute('data-style-status'); // pass, audit, fail, n/a
+
+        if (isIgnored) {{
+            row.classList.add('ignored-row');
+            // Remove from totals
+            reportSummary.total_matched--;
+            
+            if (layoutStatus === 'pass') reportSummary.layout_success_count--;
+            else if (layoutStatus === 'fail') reportSummary.error_count--;
+
+            if (styleStatus === 'pass') reportSummary.style_success_count--;
+            else if (styleStatus === 'audit') reportSummary.warning_count--;
+            
+        }} else {{
+            row.classList.remove('ignored-row');
+            // Add back to totals
+            reportSummary.total_matched++;
+            
+            if (layoutStatus === 'pass') reportSummary.layout_success_count++;
+            else if (layoutStatus === 'fail') reportSummary.error_count++;
+
+            if (styleStatus === 'pass') reportSummary.style_success_count++;
+            else if (styleStatus === 'audit') reportSummary.warning_count++;
+        }}
+
+        updateSummaryDOM();
+    }}
+
 
     function clearAllCanvases() {{
         var canvases = document.querySelectorAll('.highlight-canvas');
@@ -302,12 +376,12 @@ HTML_TEMPLATE = """
     <div class="summary-box">
         <h2>Genel Özet</h2>
         <ul>
-            <li><strong>Toplam Eşleşen Bileşen:</strong> {total_matched}</li>
-            <li><strong>Layout Uyumu:</strong> %{layout_match_pct}</li>
-            <li><strong>Stil Uyumu:</strong> %{style_match_pct}</li>
-            <li><strong>Genel Uyum:</strong> %{overall_match_pct}</li>
-            <li><strong>Toplam Hata:</strong> {error_count}</li>
-            <li><strong>Toplam Uyarı:</strong> {warning_count}</li>
+            <li><strong>Toplam Eşleşen Bileşen:</strong> <span id="s-total">{total_matched}</span></li>
+            <li><strong>Layout Uyumu:</strong> %<span id="s-layout-pct">{layout_match_pct}</span></li>
+            <li><strong>Stil Uyumu:</strong> %<span id="s-style-pct">{style_match_pct}</span></li>
+            <li><strong>Genel Uyum:</strong> %<span id="s-overall-pct">{overall_match_pct}</span></li>
+            <li><strong>Toplam Hata:</strong> <span id="s-errors">{error_count}</span></li>
+            <li><strong>Toplam Uyarı:</strong> <span id="s-warnings">{warning_count}</span></li>
         </ul>
     </div>
 
@@ -480,6 +554,7 @@ def _generate_component_comparison_tables_html(report_parts):
 
         html += f'<h2>Parça {part_index} - Bileşen Karşılaştırma</h2>'
         html += '<table><thead><tr>'
+        html += '<th style="width: 40px;">Yoksay?</th>'
         html += '<th>Bileşen Adı</th>'
         html += '<th>Figma ↔ App Bounds</th>'
         html += '<th>Layout</th>'
@@ -495,7 +570,7 @@ def _generate_component_comparison_tables_html(report_parts):
             sorted_matched = matched
 
         rows = []
-        for mc in sorted_matched:
+        for i, mc in enumerate(sorted_matched):
             raw_data = mc.get("raw_data", {})
             figma_comp = raw_data.get("figma_analysis", {}) or {}
             app_comp = raw_data.get("app_analysis", {}) or {}
@@ -521,11 +596,20 @@ def _generate_component_comparison_tables_html(report_parts):
             app_bounds_json = json.dumps(app_bounds)
             app_bounds_attr = app_bounds_json.replace('"', '&quot;')
 
+            # Unique ID for row
+            row_id = f"p{part_index}-c{i}" # i here is not loop index from matches, wait enumerate is used
+
             rows.append(
-                f'<tr class="component-row" '
+                f'<tr class="component-row" id="row-{row_id}" '
                 f'onclick="highlightComponent(this, {part_index})" '
+                f'data-layout-status="{layout_status}" '
+                f'data-style-status="{style_status}" '
                 f'data-figma-bounds="{figma_bounds_attr}" data-app-bounds="{app_bounds_attr}">'
             )
+            # Stop propagation on checkbox click to prevent expanding row? Accessing checkbox might be tricky if row click triggers highlight
+            # We will add onclick="event.stopPropagation()" to checkbox container or input
+            
+            rows.append(f'  <td onclick="event.stopPropagation()"><input type="checkbox" class="ignore-checkbox" onchange="toggleIgnore(this, \'{row_id}\')"></td>')
             rows.append(f'  <td><strong>{name}</strong></td>')
             rows.append(
                 f'  <td>'
@@ -576,6 +660,7 @@ def create_html_report(results, output_filename="report.html"):
         image_comparison_html=image_comparison_html,
         component_tables_html=component_tables_html,
         all_tables_html=all_tables_html,
+        summary_json=json.dumps(summary)
     )
 
     try:
